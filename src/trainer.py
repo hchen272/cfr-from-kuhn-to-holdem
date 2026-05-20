@@ -17,6 +17,8 @@ class Trainer:
             from cfr import cfr, node_map
         elif self.algorithm == 'cfr_plus':
             from cfr_plus import cfr_plus as cfr, node_map_plus as node_map
+        elif self.algorithm == 'dcfr':
+            from dcfr import dcfr as cfr, node_map_dcfr as node_map
         else:
             raise ValueError(f"Unknown algorithm: {self.algorithm}")
 
@@ -58,8 +60,8 @@ if __name__ == "__main__":
         "--algo", "-a",
         type=str,
         default="cfr",
-        choices=["cfr", "cfr_plus"],
-        help="Algorithm to use: 'cfr' (standard) or 'cfr_plus' (CFR+)"
+        choices=["cfr", "cfr_plus", "dcfr"],
+        help="Algorithm: 'cfr', 'cfr_plus', or 'dcfr'"
     )
     parser.add_argument(
         "--iterations", "-i",
