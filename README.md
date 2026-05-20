@@ -113,7 +113,7 @@ Game value: −0.0556 (theoretical Nash value is −1/18 ≈ −0.05556).
 
 - **Outcome Sampling CFR** (to handle huge game trees)
 
-- **Deep CFR** / **Neural CFR **using PyTorch
+- **Deep CFR** / **Neural CFR** using PyTorch
 
 - **NFSP** (Neural Fictitious Self‑Play) for full Hold'em
 
