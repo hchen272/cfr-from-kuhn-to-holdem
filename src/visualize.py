@@ -14,35 +14,40 @@ VIS_DIR = os.path.join(_PROJECT_ROOT, "visualizations")
 
 def _parse_log_filename(filepath):
     """
-    Extract algorithm name and iteration string from a log filename.
+    Extract game name, algorithm name and iteration string from a log filename.
 
-    Supports two naming conventions:
+    Supports naming conventions::
 
-        logs/strategy_{algo}_{iters}.txt    (new, e.g. strategy_dcfr_1e+07.txt)
-        logs/strategy_{iters}.txt           (old, e.g. strategy_1e+10.txt)
+        logs/{game_name}_strategy_{algo}_{iters}.txt
+            e.g. kuhn_strategy_dcfr_1e+07.txt
+        logs/strategy_{iters}.txt
+            e.g. strategy_1e+10.txt (legacy)
 
     Returns:
-        tuple (algo, iters_str) or (None, None) if unparsable.
+        tuple (game_name, algo, iters_str) or (None, None, None) if unparsable.
     """
-    basename = os.path.basename(filepath)                 # strategy_dcfr_1e+07.txt
-    core = basename.removeprefix("strategy_").removesuffix(".txt")  # dcfr_1e+07
+    basename = os.path.basename(filepath)
 
-    # New format:  {algo}_{iters}   e.g. cfr_1e+07, cfr_plus_1e+07
-    m = re.match(r"^([a-zA-Z_]+)_(\de[+-]\d+)$", core)
-    if m:
-        return m.group(1), m.group(2)
+    # New format:  {game_name}_strategy_{algo}_{iters}.txt
+    if "_strategy_" in basename:
+        prefix, suffix = basename.split("_strategy_", 1)
+        core = suffix.removesuffix(".txt")
+        m = re.match(r"^([a-zA-Z_]+)_(\de[+-]\d+)$", core)
+        if m:
+            return prefix, m.group(1), m.group(2)
 
-    # Old format:  {iters} only    e.g. 1e+10
+    # Old format:  strategy_{iters}.txt
+    core = basename.removeprefix("strategy_").removesuffix(".txt")
     m = re.match(r"^(\de[+-]\d+)$", core)
     if m:
-        return "legacy", m.group(1)
+        return "legacy", "legacy", m.group(1)
 
-    return None, None
+    return None, None, None
 
 
-def _folder_path(algo, iters_str):
+def _folder_path(game_name, algo, iters_str):
     """Return expected visualization folder path under VIS_DIR."""
-    return os.path.join(VIS_DIR, f"{algo}_{iters_str}")
+    return os.path.join(VIS_DIR, f"{game_name}_{algo}_{iters_str}")
 
 
 def _read_log(filepath):
@@ -105,19 +110,19 @@ def _read_game_values(filepath):
     return {"iters": iters, "values": values}
 
 
-def plot_strategy_evolution(filepath, algo, iters_str):
+def plot_strategy_evolution(filepath, game_name, algo, iters_str):
     """
     Plot strategy evolution for every infoset found in *filepath*,
     plus the overall average game value progression.
 
     Saves one PNG per infoset plus ``game_value.png`` under::
 
-        visualizations/{algo}_{iters_str}/
+        visualizations/{game_name}_{algo}_{iters_str}/
     """
     history = _read_log(filepath)
     game_values = _read_game_values(filepath)
 
-    output_dir = _folder_path(algo, iters_str)
+    output_dir = _folder_path(game_name, algo, iters_str)
     os.makedirs(output_dir, exist_ok=True)
 
     # ---- per-infoset strategy plots ---------------------------------
@@ -156,20 +161,20 @@ def plot_strategy_evolution(filepath, algo, iters_str):
 
 
 if __name__ == "__main__":
-    log_files = sorted(glob.glob(os.path.join(LOG_DIR, "strategy_*.txt")))
+    log_files = sorted(glob.glob(os.path.join(LOG_DIR, "*_strategy_*.txt")))
 
     if not log_files:
         print(f"No log files found in {LOG_DIR}/")
         exit(0)
 
     for log_file in log_files:
-        algo, iters_str = _parse_log_filename(log_file)
+        game_name, algo, iters_str = _parse_log_filename(log_file)
 
         if algo is None:
             print(f"[SKIP]  Unrecognised filename: {os.path.basename(log_file)}")
             continue
 
-        print(f"[WORK]  {algo}_{iters_str}  ← {os.path.basename(log_file)}")
-        plot_strategy_evolution(log_file, algo, iters_str)
+        print(f"[WORK]  {game_name}_{algo}_{iters_str}  ← {os.path.basename(log_file)}")
+        plot_strategy_evolution(log_file, game_name, algo, iters_str)
 
     print("\nDone.")

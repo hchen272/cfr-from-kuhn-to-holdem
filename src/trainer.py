@@ -1,15 +1,18 @@
 import argparse
 import random
-from game import *
+from game_selector import get_game
 from utils import save_strategy_txt, save_model
 
 class Trainer:
 
-    def __init__(self, algorithm='cfr'):
+    def __init__(self, algorithm='cfr', game_name='kuhn'):
         """
         algorithm: 'cfr', 'cfr_plus', 'dcfr', 'pdcfr_plus', or 'deep_cfr'
+        game_name: 'kuhn' or 'leduc' (when implemented)
         """
         self.algorithm = algorithm
+        self.game_name = game_name
+        self.game = get_game(game_name)
 
     def train(self, iterations):
         # ---- Deep CFR uses a completely different training loop ----
@@ -17,7 +20,8 @@ class Trainer:
             from neural.train import train_deep_cfr
             # Deep CFR default: 1M (tabular defaults to 10M)
             dcfr_iters = 1000000 if iterations == 10000000 else iterations
-            train_deep_cfr(iterations=dcfr_iters, log_prefix=self.algorithm)
+            train_deep_cfr(iterations=dcfr_iters, log_prefix=self.algorithm,
+                           game_name=self.game_name)
             return
 
         # ---- Tabular algorithms ------------------------------------
@@ -34,18 +38,18 @@ class Trainer:
             raise ValueError(f"Unknown algorithm: {self.algorithm}")
 
         # Clean logs (write header)
-        save_strategy_txt(node_map, 0, 0, iterations, self.algorithm)
+        save_strategy_txt(node_map, 0, 0, iterations, self.algorithm,
+                          game_name=self.game_name)
 
         total_util = 0.0
+        game = self.game
 
         for i in range(iterations):
-            # Shuffle and deal cards
-            cards = CARDS.copy()
-            random.shuffle(cards)
-            cards = (cards[0], cards[1])
+            # Deal cards using the game
+            cards = game.deal_cards()
 
             # Run one iteration of CFR/CFR+
-            total_util += cfr(cards, "", 1, 1)
+            total_util += cfr(game, cards, "", 1, 1)
 
             # Periodic logging
             if (i + 1) % 100000 == 0:
@@ -53,7 +57,8 @@ class Trainer:
                 print(f"Iteration {i+1}")
                 print(f"Average game value: {avg_value}")
                 print("-" * 40)
-                save_strategy_txt(node_map, i + 1, avg_value, iterations, self.algorithm)
+                save_strategy_txt(node_map, i + 1, avg_value, iterations,
+                                  self.algorithm, game_name=self.game_name)
 
         # Final output
         print("\n=== FINAL STRATEGIES ===\n")
@@ -62,11 +67,12 @@ class Trainer:
             avg_strategy = node.get_average_strategy()
             print(f"{infoset}: {avg_strategy}")
 
-        save_model(node_map, iterations, self.algorithm)
+        save_model(node_map, iterations, self.algorithm,
+                   game_name=self.game_name)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Kuhn Poker CFR Trainer")
+    parser = argparse.ArgumentParser(description="CFR Trainer")
     parser.add_argument(
         "--algo", "-a",
         type=str,
@@ -80,7 +86,14 @@ if __name__ == "__main__":
         default=10000000,
         help="Number of CFR iterations"
     )
+    parser.add_argument(
+        "--game", "-g",
+        type=str,
+        default="kuhn",
+        choices=["kuhn", "leduc"],
+        help="Game: 'kuhn' (default) or 'leduc' (when implemented)"
+    )
     args = parser.parse_args()
 
-    trainer = Trainer(algorithm=args.algo)
+    trainer = Trainer(algorithm=args.algo, game_name=args.game)
     trainer.train(args.iterations)

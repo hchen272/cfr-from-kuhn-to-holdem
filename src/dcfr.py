@@ -1,6 +1,5 @@
-from game import *
-from node import *
 import numpy as np
+from node import Node
 
 # Separate node map for DCFR
 node_map_dcfr = {}
@@ -19,7 +18,7 @@ def _discount(t, exponent):
     return (t / (t + 1)) ** exponent
 
 
-def dcfr(cards, history, p0, p1):
+def dcfr(game, cards, history, p0, p1):
     """
     Discounted CFR (DCFR) recursion.
 
@@ -30,6 +29,9 @@ def dcfr(cards, history, p0, p1):
         via Discounted Regret Minimization"
 
     Default parameters: α=1.5, β=0, γ=2.
+
+    Args:
+        game: Game instance
     """
     global _iter_cnt
 
@@ -38,8 +40,8 @@ def dcfr(cards, history, p0, p1):
     opponent = 1 - player
 
     # Terminal node
-    if is_terminal(history):
-        payoff = get_payoff(history, cards)
+    if game.is_terminal(history):
+        payoff = game.get_payoff(history, cards)
         return payoff if player == 0 else -payoff
 
     # Auto-increment iteration counter at the root of each traversal
@@ -50,7 +52,7 @@ def dcfr(cards, history, p0, p1):
     # Infoset key
     infoset = cards[player] + history
     if infoset not in node_map_dcfr:
-        node_map_dcfr[infoset] = Node()
+        node_map_dcfr[infoset] = Node(num_actions=game.num_actions)
 
     node = node_map_dcfr[infoset]
     reach_prob = p0 if player == 0 else p1
@@ -59,16 +61,17 @@ def dcfr(cards, history, p0, p1):
     strategy = node.get_strategy(reach_prob, strategy_discount=_discount(t, GAMMA))
 
     # Evaluate each action
-    util = np.zeros(NUM_ACTIONS)
+    na = game.num_actions
+    util = np.zeros(na)
     node_util = 0.0
 
-    for a in range(NUM_ACTIONS):
-        next_history = history + ACTIONS[a]
+    for a in range(na):
+        next_history = history + game.ACTIONS[a]
 
         if player == 0:
-            util[a] = -dcfr(cards, next_history, p0 * strategy[a], p1)
+            util[a] = -dcfr(game, cards, next_history, p0 * strategy[a], p1)
         else:
-            util[a] = -dcfr(cards, next_history, p0, p1 * strategy[a])
+            util[a] = -dcfr(game, cards, next_history, p0, p1 * strategy[a])
 
         node_util += strategy[a] * util[a]
 
@@ -77,7 +80,7 @@ def dcfr(cards, history, p0, p1):
     pos_discount = _discount(t, ALPHA)
     neg_discount = _discount(t, BETA)
 
-    for a in range(NUM_ACTIONS):
+    for a in range(na):
         regret = util[a] - node_util
         weighted_regret = (p1 if player == 0 else p0) * regret
 

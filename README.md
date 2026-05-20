@@ -5,11 +5,14 @@
 **Counterfactual Regret Minimization (CFR) family implemented for Kuhn Poker.**  
 A clean, educational codebase for learning imperfect‑information game solving.
 Includes tabular algorithms (CFR, CFR+, DCFR, PDCFR+) and a neural variant
-(Deep CFR). Future roadmap: scale to Leduc Hold'em → full Texas Hold'em.
+(Deep CFR), all built on a **game-agnostic** abstraction layer ready for
+Leduc Hold'em and beyond.
 
 ## Features
 
-- Full implementation of Kuhn Poker game rules (`game.py`)
+- Full implementation of Kuhn Poker game rules (`games/kuhn.py`)
+- Game abstraction layer (`games/`, `game_selector.py`) ready for Leduc Hold'em
+- Dynamic file naming (`{game_name}_strategy_*`, `{game_name}_model_*`)
 - **5 algorithms** covering the CFR family:
   - `cfr` — Standard CFR (regret matching)
   - `cfr_plus` — CFR+ (positive regret accumulation)
@@ -25,14 +28,18 @@ Includes tabular algorithms (CFR, CFR+, DCFR, PDCFR+) and a neural variant
 
 ```text
 myCFR/
-├── logs/                        # Training logs (all algorithms)
+├── logs/                        # Training logs (all algorithms, e.g. kuhn_strategy_cfr_1e+07.txt)
 ├── models/                      # Saved model pickles
-├── visualizations/              # Per-algorithm strategy plots + game value curves
+├── visualizations/              # Per-algorithm strategy plots + game value curves (e.g. kuhn_cfr_1e+07/)
 ├── comparison/                  # Detailed equilibrium analysis
 │   └── kuhn_poker_equilibrium_analysis.md
 │
 ├── src/
-│   ├── game.py                  # Kuhn Poker rules, deck, payoff
+│   ├── games/                   # Game abstraction layer
+│   │   ├── __init__.py          # Game ABC (abstract base class)
+│   │   └── kuhn.py              # KuhnGame(Game)
+│   ├── game_selector.py         # get_game(name) → Game instance
+│   ├── game.py                  # Backward-compat re-export
 │   ├── node.py                  # Node class (regret/strategy storage)
 │   ├── utils.py                 # Save/load models and snapshots
 │   │
@@ -68,23 +75,28 @@ Install dependencies:
 ```bash
 pip install numpy matplotlib
 # for Deep CFR:
-pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install torch
 ```
 
 ### Training
 
-Run from the project root:
+Run from the project root. All commands accept `--game` / `-g` to select the game
+(default `kuhn`; `leduc` when implemented):
 
 ```bash
 # Tabular algorithms (default 10M iterations)
-python src/trainer.py                         # CFR, 10M iters
-python src/trainer.py --algo cfr_plus         # CFR+, 10M iters
-python src/trainer.py --algo dcfr             # DCFR, 10M iters
-python src/trainer.py --algo pdcfr_plus       # PDCFR+, 10M iters
+python src/trainer.py                         # CFR, Kuhn, 10M iters
+python src/trainer.py --algo cfr_plus         # CFR+, Kuhn, 10M iters
+python src/trainer.py --algo dcfr             # DCFR, Kuhn, 10M iters
+python src/trainer.py --algo pdcfr_plus       # PDCFR+, Kuhn, 10M iters
 
 # Deep CFR (default 1M iterations, uses checkpoint recovery)
 python src/trainer.py --algo deep_cfr         # 1M iters
 python src/trainer.py --algo deep_cfr -i 2000000  # 2M iters
+
+# Explicit game selection (default is 'kuhn')
+python src/trainer.py -a cfr -g kuhn          # same as above
+python src/trainer.py -a cfr -i 10000000 -g kuhn
 ```
 
 Options:
@@ -93,8 +105,11 @@ Options:
 |------|-------------|
 | `--algo` / `-a` | Algorithm: `cfr`, `cfr_plus`, `dcfr`, `pdcfr_plus`, `deep_cfr` |
 | `--iterations` / `-i` | Number of iterations (default 10⁷ tabular, 10⁶ deep) |
+| `--game` / `-g` | Game: `kuhn` (default), `leduc` (when implemented) |
 
-During training, snapshots are saved every 1% of total iterations into `logs/`.
+During training, snapshots are saved every 1% of total iterations into `logs/`
+as `{game_name}_strategy_{algo}_{iters}.txt`. Models are saved to `models/`
+as `{game_name}_{algo}_{iters}.pkl`.
 
 ### Visualising Convergence
 
@@ -102,9 +117,10 @@ During training, snapshots are saved every 1% of total iterations into `logs/`.
 python src/visualize.py
 ```
 
-Automatically discovers all log files, generates per-infoset strategy evolution
-plots plus an average game value curve (with Nash reference line) for each
-algorithm. All plots are saved under `visualizations/`.
+Automatically discovers all `*_strategy_*.txt` log files (for any game),
+generates per-infoset strategy evolution plots plus an average game value curve
+(with Nash reference line) for each algorithm. All plots are saved under
+`visualizations/{game_name}_{algo}_{iters}/`.
 
 ## Algorithm Comparison
 
@@ -160,15 +176,18 @@ aggression is the main remaining gap.
 
 ## Detailed Analysis
 
-See [`comparison/kuhn_poker_equilibrium_analysis.md`](comparison/kuhn_poker_equilibrium_analysis.md)
+See [Kuhn Poker Equilibrium Analysis](comparison/kuhn_poker_equilibrium_analysis.md)
 for a thorough per-infoset breakdown, convergence dynamics, and training
 oscillation analysis.
 
 ## Roadmap
 
-- Leduc Hold'em (larger toy game) with card abstraction
-- **Outcome Sampling CFR** (to handle huge game trees)
-- **Neural Fictitious Self-Play (NFSP)** for full Hold'em
+- [x] Game abstraction layer (`games/`, `game_selector.py`)
+- [x] Game-agnostic CFR algorithms (all 5 variants accept `game` parameter)
+- [x] Dynamic file naming (`{game_name}_strategy_*`, `{game_name}_model_*`)
+- [ ] Leduc Hold'em game implementation (6 cards, 2 rounds, community card)
+- [ ] Outcome Sampling CFR (to handle huge game trees)
+- [ ] Neural Fictitious Self-Play (NFSP) for full Hold'em
 
 ## References
 

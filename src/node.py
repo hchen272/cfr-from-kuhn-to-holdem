@@ -1,24 +1,29 @@
 import numpy as np
 
 
+# Default number of actions (Kuhn Poker); overridden when passing to constructor
 NUM_ACTIONS = 2
 
 
 class Node:
 
-    def __init__(self):
+    def __init__(self, num_actions=None):
+
+        if num_actions is None:
+            num_actions = NUM_ACTIONS
+        self.num_actions = num_actions
 
         # cumulative regrets
-        self.regret_sum = np.zeros(NUM_ACTIONS)
+        self.regret_sum = np.zeros(num_actions)
 
         # previous iteration's instant regret (used by PDCFR+ prediction)
-        self.last_inst_regret = np.zeros(NUM_ACTIONS)
+        self.last_inst_regret = np.zeros(num_actions)
 
         # current strategy
-        self.strategy = np.zeros(NUM_ACTIONS)
+        self.strategy = np.zeros(num_actions)
 
         # cumulative strategy
-        self.strategy_sum = np.zeros(NUM_ACTIONS)
+        self.strategy_sum = np.zeros(num_actions)
 
     def get_strategy(self, realization_weight, strategy_discount=1.0):
         """
@@ -40,20 +45,20 @@ class Node:
         normalizing_sum = 0
 
         # regret matching
-        for a in range(NUM_ACTIONS):
+        for a in range(self.num_actions):
 
             self.strategy[a] = max(self.regret_sum[a], 0)
 
             normalizing_sum += self.strategy[a]
 
         # normalize
-        for a in range(NUM_ACTIONS):
+        for a in range(self.num_actions):
 
             if normalizing_sum > 0:
                 self.strategy[a] /= normalizing_sum
             else:
                 # uniform random strategy
-                self.strategy[a] = 1.0 / NUM_ACTIONS
+                self.strategy[a] = 1.0 / self.num_actions
 
             # accumulate average strategy (with optional DCFR discount)
             self.strategy_sum[a] = (
@@ -68,18 +73,18 @@ class Node:
         Compute average strategy over all iterations.
         """
 
-        avg_strategy = np.zeros(NUM_ACTIONS)
+        avg_strategy = np.zeros(self.num_actions)
 
         normalizing_sum = np.sum(self.strategy_sum)
 
-        for a in range(NUM_ACTIONS):
+        for a in range(self.num_actions):
 
             if normalizing_sum > 0:
                 avg_strategy[a] = (
                     self.strategy_sum[a] / normalizing_sum
                 )
             else:
-                avg_strategy[a] = 1.0 / NUM_ACTIONS
+                avg_strategy[a] = 1.0 / self.num_actions
 
         return avg_strategy
 

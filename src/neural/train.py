@@ -1,13 +1,12 @@
 """
-Training orchestration for Deep CFR on Kuhn Poker.
+Training orchestration for Deep CFR.
 
 Usage (from project root)::
 
-    python -m src.neural.train --iterations 100000
+    python src/trainer.py -a deep_cfr -g kuhn
 """
 
 import argparse
-import os
 import random
 
 import numpy as np
@@ -15,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from game import *
+from game_selector import get_game
 from node import NUM_ACTIONS
 from neural.model import RegretNet, get_strategy_from_regrets
 from neural.buffer import ReservoirBuffer
@@ -35,8 +34,16 @@ WARM_START_RATIO = 5      # 1/WARM_START_RATIO of buffer filled with random play
 PROGRESS_EVERY = 5000     # print a one-line progress every N episodes
 
 
-def train_deep_cfr(iterations, log_prefix="deep_cfr"):
+def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
     """Run the full Deep CFR training loop.
+
+    Parameters
+    ----------
+    iterations : int
+    log_prefix : str
+        Algorithm name used in log/model filenames.
+    game_name : str
+        Game name used in file naming (e.g. 'kuhn', 'leduc').
 
     Returns
     -------
@@ -44,6 +51,8 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr"):
         Trained agent whose ``strategy_sum`` dict holds the average
         strategies.
     """
+    game = get_game(game_name)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
         print(f"Using GPU: {torch.cuda.get_device_name(0)}")
@@ -51,17 +60,19 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr"):
         print("Using CPU")
 
     # --- initialise components ---------------------------------------
-    regret_net = RegretNet(input_dim=5, hidden_dim=HIDDEN_DIM).to(device)
+    regret_net = RegretNet(input_dim=game.feature_dim,
+                           hidden_dim=HIDDEN_DIM,
+                           output_dim=game.num_actions).to(device)
     optimizer = optim.Adam(regret_net.parameters(), lr=LEARNING_RATE)
     loss_fn = nn.MSELoss()
 
     buffer = ReservoirBuffer(capacity=BUFFER_CAPACITY)
-    agent = DeepCFR(regret_net, buffer, device=device)
+    agent = DeepCFR(regret_net, buffer, game, device=device)
     node_map_for_logging = {}      # see note below
 
     # --- warm-start: fill buffer with a small amount of random play --
     warm_start_n = max(1, BUFFER_CAPACITY // WARM_START_RATIO)
-    _warm_start_buffer(buffer, n=warm_start_n, agent=agent)
+    _warm_start_buffer(buffer, n=warm_start_n, agent=agent, game=game)
 
     # --- main training loop ------------------------------------------
     total_util = 0.0
@@ -72,9 +83,7 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr"):
     best_strategy_sum = None
 
     for episode in range(1, iterations + 1):
-        cards = CARDS.copy()
-        random.shuffle(cards)
-        cards = (cards[0], cards[1])
+        cards = game.deal_cards()
 
         episode_util = agent.traverse(cards, "", 1.0, 1.0)
         total_util += episode_util
@@ -102,7 +111,8 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr"):
         if episode % snapshot_every == 0:
             avg_val = total_util / episode
             _log_snapshot(agent, episode, avg_val, iterations,
-                          log_prefix, node_map_for_logging)
+                          log_prefix, node_map_for_logging,
+                          game_name=game_name)
 
     # --- restore best checkpoint for final output --------------------
     if best_strategy_sum is not None:
@@ -114,7 +124,8 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr"):
     _print_final_strategies(agent, total_util, iterations)
 
     # save model (pickle the strategy_sum dict for consistency)
-    model_path = save_model(agent.strategy_sum, iterations, log_prefix)
+    model_path = save_model(agent.strategy_sum, iterations, log_prefix,
+                            game_name=game_name)
     return agent
 
 
@@ -122,18 +133,16 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr"):
 #  Internal helpers
 # ══════════════════════════════════════════════════════════════════════
 
-def _warm_start_buffer(buffer, n, agent):
+def _warm_start_buffer(buffer, n, agent, game):
     """Fill the buffer with random-strategy traversals."""
     saved_net = agent.regret_net
     # temporarily use a uniform-random strategy by zeroing regrets
     class _RandomNet(nn.Module):
         def forward(self, x):
-            return torch.zeros(x.size(0), NUM_ACTIONS)
+            return torch.zeros(x.size(0), game.num_actions)
     agent.regret_net = _RandomNet()
     for _ in range(n):
-        cards = CARDS.copy()
-        random.shuffle(cards)
-        cards = (cards[0], cards[1])
+        cards = game.deal_cards()
         agent.traverse(cards, "", 1.0, 1.0)
     agent.regret_net = saved_net
 
@@ -153,7 +162,7 @@ def _train_step(net, optimizer, loss_fn, buffer, batch_size, device, steps=1):
 
 
 def _log_snapshot(agent, episode, avg_val, total_iters, algo_prefix,
-                  node_map_for_logging):
+                  node_map_for_logging, game_name="kuhn"):
     """Print progress and write strategy snapshot in the same format
     as tabular CFR, so that ``visualize.py`` can parse it.
 
@@ -171,7 +180,7 @@ def _log_snapshot(agent, episode, avg_val, total_iters, algo_prefix,
         node_map_for_logging[infoset] = _FakeNode(avg)
 
     save_strategy_txt(node_map_for_logging, episode, avg_val,
-                      total_iters, algo_prefix)
+                      total_iters, algo_prefix, game_name=game_name)
 
 
 def _print_final_strategies(agent, total_util, iterations):

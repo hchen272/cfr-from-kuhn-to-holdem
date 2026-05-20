@@ -163,11 +163,11 @@ indicating long-term improvement.
 
 | Algorithm | Log | Model | Visualizations |
 |-----------|-----|-------|----------------|
-| CFR | `logs/strategy_cfr_1e+07.txt` | `models/kuhn_cfr_1e+07.pkl` | `visualizations/cfr_1e+07/` |
-| CFR+ | `logs/strategy_cfr_plus_1e+07.txt` | `models/kuhn_cfr_plus_1e+07.pkl` | `visualizations/cfr_plus_1e+07/` |
-| DCFR | `logs/strategy_dcfr_1e+07.txt` | `models/kuhn_dcfr_1e+07.pkl` | `visualizations/dcfr_1e+07/` |
-| PDCFR+ | `logs/strategy_pdcfr_plus_1e+07.txt` | `models/kuhn_pdcfr_plus_1e+07.pkl` | `visualizations/pdcfr_plus_1e+07/` |
-| **Deep CFR** | `logs/strategy_deep_cfr_1e+06.txt` | `models/kuhn_deep_cfr_1e+06.pkl` | `visualizations/deep_cfr_1e+06/` |
+| CFR | `logs/kuhn_strategy_cfr_1e+07.txt` | `models/kuhn_cfr_1e+07.pkl` | `visualizations/kuhn_cfr_1e+07/` |
+| CFR+ | `logs/kuhn_strategy_cfr_plus_1e+07.txt` | `models/kuhn_cfr_plus_1e+07.pkl` | `visualizations/kuhn_cfr_plus_1e+07/` |
+| DCFR | `logs/kuhn_strategy_dcfr_1e+07.txt` | `models/kuhn_dcfr_1e+07.pkl` | `visualizations/kuhn_dcfr_1e+07/` |
+| PDCFR+ | `logs/kuhn_strategy_pdcfr_plus_1e+07.txt` | `models/kuhn_pdcfr_plus_1e+07.pkl` | `visualizations/kuhn_pdcfr_plus_1e+07/` |
+| **Deep CFR** | `logs/kuhn_strategy_deep_cfr_1e+06.txt` | `models/kuhn_deep_cfr_1e+06.pkl` | `visualizations/kuhn_deep_cfr_1e+06/` |
 
 ---
 

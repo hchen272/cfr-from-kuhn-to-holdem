@@ -1,17 +1,19 @@
-from game import *
-from node import *
 import numpy as np
+from node import Node
 
 
 # infoset map
 node_map = {}
 
 
-def cfr(cards, history, p0, p1):
+def cfr(game, cards, history, p0, p1):
     """
     CFR recursion.
 
     Args:
+        game:
+            Game instance (provides is_terminal, get_payoff, ACTIONS, etc.)
+
         cards:
             player private cards
 
@@ -36,9 +38,9 @@ def cfr(cards, history, p0, p1):
     opponent = 1 - player
 
     # terminal node
-    if is_terminal(history):
+    if game.is_terminal(history):
 
-        payoff = get_payoff(history, cards)
+        payoff = game.get_payoff(history, cards)
 
         return payoff if player == 0 else -payoff
 
@@ -47,7 +49,7 @@ def cfr(cards, history, p0, p1):
 
     # get/create node
     if infoset not in node_map:
-        node_map[infoset] = Node()
+        node_map[infoset] = Node(num_actions=game.num_actions)
 
     node = node_map[infoset]
 
@@ -56,19 +58,21 @@ def cfr(cards, history, p0, p1):
         p0 if player == 0 else p1
     )
 
-    util = np.zeros(NUM_ACTIONS)
+    na = game.num_actions
+    util = np.zeros(na)
 
     node_util = 0
 
     # for each action
-    for a in range(NUM_ACTIONS):
+    for a in range(na):
 
-        next_history = history + ACTIONS[a]
+        next_history = history + game.ACTIONS[a]
 
         # recursive traversal
         if player == 0:
 
             util[a] = -cfr(
+                game,
                 cards,
                 next_history,
                 p0 * strategy[a],
@@ -78,6 +82,7 @@ def cfr(cards, history, p0, p1):
         else:
 
             util[a] = -cfr(
+                game,
                 cards,
                 next_history,
                 p0,
@@ -87,7 +92,7 @@ def cfr(cards, history, p0, p1):
         node_util += strategy[a] * util[a]
 
     # regret update
-    for a in range(NUM_ACTIONS):
+    for a in range(na):
 
         regret = util[a] - node_util
 

@@ -2,7 +2,7 @@ import pickle
 import os
 
 
-def save_model(node_map, iterations, algorithm):
+def save_model(node_map, iterations, algorithm, game_name="kuhn"):
     """
     Save trained node map.
     """
@@ -11,7 +11,7 @@ def save_model(node_map, iterations, algorithm):
 
     os.makedirs(model_dir, exist_ok=True)
 
-    filename = f"kuhn_{algorithm}_{iterations:.0e}.pkl"
+    filename = f"{game_name}_{algorithm}_{iterations:.0e}.pkl"
 
     filepath = os.path.join(model_dir, filename)
 
@@ -20,9 +20,9 @@ def save_model(node_map, iterations, algorithm):
 
     print(f"Model saved to {filepath}")
 
-def load_model(iterations, algorithm):
+def load_model(iterations, algorithm, game_name="kuhn"):
 
-    filename = f"kuhn_{algorithm}_{iterations:.0e}.pkl"
+    filename = f"{game_name}_{algorithm}_{iterations:.0e}.pkl"
 
     filepath = os.path.join("models", filename)
 
@@ -39,7 +39,8 @@ def save_strategy_txt(
     iter_now,
     avg_value,
     iterations,
-    algorithm
+    algorithm,
+    game_name="kuhn"
 ):
     """
     Save strategy snapshots.
@@ -50,7 +51,7 @@ def save_strategy_txt(
     os.makedirs(log_dir, exist_ok=True)
 
     filename = (
-        f"strategy_{algorithm}_{iterations:.0e}.txt"
+        f"{game_name}_strategy_{algorithm}_{iterations:.0e}.txt"
     )
 
     filepath = os.path.join(
