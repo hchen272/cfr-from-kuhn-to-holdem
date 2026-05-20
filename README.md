@@ -84,8 +84,8 @@ Plots are saved under `visualizations/` with one PNG per information set.
 
 | Algorithm | Regret Update Rule               | Convergence Speed                        | Final Game Value (1e7 iters) |
 |-----------|----------------------------------|------------------------------------------|------------------------------|
-| CFR       | \( R_t = R_{t-1} + \Delta \)     | Standard                                 | −0.0560 (≈ −1/18)            |
-| CFR+      | \( R_t = \max(0, R_{t-1} + \Delta) \) | Faster (fewer iterations to same quality) | −0.0556 (≈ −1/18)            |
+| CFR       |  $R_t = R_{t-1} + \Delta $    | Standard                                 | −0.0560 (≈ −1/18)            |
+| CFR+      | $R_t = \max(0, R_{t-1} + \Delta)$ | Faster (fewer iterations to same quality) | −0.0556 (≈ −1/18)            |
 
 Both converge to a Nash equilibrium of Kuhn Poker, but on different points of the equilibrium continuum.
 CFR+ typically drives strategies closer to pure actions (e.g., King bets more often).
