@@ -59,6 +59,16 @@ class Game(ABC):
     def deal_cards(self) -> tuple:
         """Shuffle and deal cards; return ``(player0_card, player1_card)``."""
 
+    def build_next_history(self, history: str, action: str) -> str:
+        """
+        Append *action* to *history*, handling round transitions.
+
+        The default implementation concatenates directly (suitable for
+        single-round games like Kuhn Poker). Multi-round games override
+        this to insert community-card or round-separator information.
+        """
+        return history + action
+
     # ── Feature encoding (for Deep CFR) ────────────────────────────────
 
     @abstractmethod

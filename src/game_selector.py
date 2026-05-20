@@ -31,6 +31,9 @@ def get_game(game_name: str):
     if game_name == "kuhn":
         from games.kuhn import KuhnGame
         game = KuhnGame()
+    elif game_name == "leduc":
+        from games.leduc import LeducGame
+        game = LeducGame()
     else:
         raise ValueError(f"Unknown game: {game_name!r}. "
                          f"Available: {list(_GAME_CACHE.keys()) + ['kuhn']}")

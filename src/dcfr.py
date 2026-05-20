@@ -65,8 +65,13 @@ def dcfr(game, cards, history, p0, p1):
     util = np.zeros(na)
     node_util = 0.0
 
+    legal_actions = game.get_legal_actions(history)
+    legal_set = set(legal_actions)
+
     for a in range(na):
-        next_history = history + game.ACTIONS[a]
+        if game.ACTIONS[a] not in legal_set:
+            continue
+        next_history = game.build_next_history(history, game.ACTIONS[a])
 
         if player == 0:
             util[a] = -dcfr(game, cards, next_history, p0 * strategy[a], p1)
@@ -81,6 +86,8 @@ def dcfr(game, cards, history, p0, p1):
     neg_discount = _discount(t, BETA)
 
     for a in range(na):
+        if game.ACTIONS[a] not in legal_set:
+            continue
         regret = util[a] - node_util
         weighted_regret = (p1 if player == 0 else p0) * regret
 

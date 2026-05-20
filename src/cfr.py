@@ -63,10 +63,17 @@ def cfr(game, cards, history, p0, p1):
 
     node_util = 0
 
-    # for each action
+    # Determine legal actions for this state
+    legal_actions = game.get_legal_actions(history)
+    legal_set = set(legal_actions)
+
+    # for each action (only legal ones)
     for a in range(na):
 
-        next_history = history + game.ACTIONS[a]
+        if game.ACTIONS[a] not in legal_set:
+            continue  # skip illegal actions
+
+        next_history = game.build_next_history(history, game.ACTIONS[a])
 
         # recursive traversal
         if player == 0:
@@ -93,6 +100,9 @@ def cfr(game, cards, history, p0, p1):
 
     # regret update
     for a in range(na):
+
+        if game.ACTIONS[a] not in legal_set:
+            continue
 
         regret = util[a] - node_util
 

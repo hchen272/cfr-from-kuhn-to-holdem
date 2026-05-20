@@ -94,8 +94,13 @@ class DeepCFR:
         util = np.zeros(na, dtype=np.float64)
         node_util = 0.0
 
+        legal_actions = game.get_legal_actions(history)
+        legal_set = set(legal_actions)
+
         for a in range(na):
-            next_hist = history + game.ACTIONS[a]
+            if game.ACTIONS[a] not in legal_set:
+                continue
+            next_hist = game.build_next_history(history, game.ACTIONS[a])
             if player == 0:
                 util[a] = -self.traverse(cards, next_hist,
                                          p0 * strategy[a], p1)
@@ -107,6 +112,8 @@ class DeepCFR:
         # ---- store instant regrets in buffer ------------------------
         regret_vec = np.zeros(na, dtype=np.float64)
         for a in range(na):
+            if game.ACTIONS[a] not in legal_set:
+                continue
             inst = util[a] - node_util
             regret_vec[a] = (p1 if player == 0 else p0) * inst
         self.buffer.add(features, regret_vec)

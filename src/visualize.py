@@ -11,6 +11,13 @@ _PROJECT_ROOT = os.path.dirname(_HERE)
 LOG_DIR = os.path.join(_PROJECT_ROOT, "logs")
 VIS_DIR = os.path.join(_PROJECT_ROOT, "visualizations")
 
+# Nash equilibrium game values (player-0 perspective) by game
+_NASH_VALUES = {
+    "kuhn": (-1 / 18, f"Nash equilibrium (-1/18 ≈ {-1/18:.4f})"),
+    "leduc": (-0.085, "Nash equilibrium (≈ -0.085)"),
+    "legacy": (-1 / 18, f"Nash equilibrium (-1/18 ≈ {-1/18:.4f})"),
+}
+
 
 def _parse_log_filename(filepath):
     """
@@ -115,7 +122,10 @@ def plot_strategy_evolution(filepath, game_name, algo, iters_str):
     Plot strategy evolution for every infoset found in *filepath*,
     plus the overall average game value progression.
 
-    Saves one PNG per infoset plus ``game_value.png`` under::
+    For non-Kuhn games (e.g. Leduc), only the average game value plot
+    is generated (per-infoset plots are skipped to avoid clutter).
+
+    Saves plots under::
 
         visualizations/{game_name}_{algo}_{iters_str}/
     """
@@ -125,30 +135,38 @@ def plot_strategy_evolution(filepath, game_name, algo, iters_str):
     output_dir = _folder_path(game_name, algo, iters_str)
     os.makedirs(output_dir, exist_ok=True)
 
-    # ---- per-infoset strategy plots ---------------------------------
-    for infoset, data in history.items():
-        plt.figure(figsize=(8, 5))
-        plt.plot(data["iters"], data["values"])
-        plt.xlabel("Iterations")
-        plt.ylabel("Check / Pass Probability")
-        plt.title(f"Strategy Evolution – {infoset}")
-        plt.grid(True)
+    # ---- per-infoset strategy plots (Kuhn only) -----------------------
+    if game_name == "kuhn":
+        for infoset, data in history.items():
+            plt.figure(figsize=(8, 5))
+            plt.plot(data["iters"], data["values"])
+            plt.xlabel("Iterations")
+            plt.ylabel("Check / Pass Probability")
+            plt.title(f"Strategy Evolution – {infoset}")
+            plt.grid(True)
 
-        out_path = os.path.join(output_dir, f"{infoset}.png")
-        plt.savefig(out_path, dpi=300, bbox_inches="tight")
-        plt.close()
-        print(f"  Saved: {out_path}")
+            out_path = os.path.join(output_dir, f"{infoset}.png")
+            plt.savefig(out_path, dpi=300, bbox_inches="tight")
+            plt.close()
+            print(f"  Saved: {out_path}")
+    else:
+        n_skip = len(history)
+        if n_skip > 0:
+            print(f"  [SKIP] {n_skip} per-infoset plots (game='{game_name}' has too many infosets)")
 
     # ---- average game value plot ------------------------------------
     if game_values["iters"]:
+        nash_val, nash_label = _NASH_VALUES.get(game_name, (None, None))
+
         plt.figure(figsize=(8, 5))
         plt.plot(game_values["iters"], game_values["values"],
                  label="Average game value")
-        plt.axhline(y=-1/18, color="r", linestyle="--", linewidth=1,
-                    label=f"Nash equilibrium (-1/18 ≈ -0.0556)")
+        if nash_val is not None:
+            plt.axhline(y=nash_val, color="r", linestyle="--", linewidth=1,
+                        label=nash_label)
         plt.xlabel("Iterations")
         plt.ylabel("Average Game Value (player 0)")
-        plt.title(f"Average Game Value – {algo}_{iters_str}")
+        plt.title(f"Average Game Value – {game_name}_{algo}_{iters_str}")
         plt.legend()
         plt.grid(True)
 
