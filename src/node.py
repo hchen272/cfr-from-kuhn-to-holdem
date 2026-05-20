@@ -11,6 +11,9 @@ class Node:
         # cumulative regrets
         self.regret_sum = np.zeros(NUM_ACTIONS)
 
+        # previous iteration's instant regret (used by PDCFR+ prediction)
+        self.last_inst_regret = np.zeros(NUM_ACTIONS)
+
         # current strategy
         self.strategy = np.zeros(NUM_ACTIONS)
 
