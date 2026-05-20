@@ -7,11 +7,20 @@ class Trainer:
 
     def __init__(self, algorithm='cfr'):
         """
-        algorithm: 'cfr' or 'cfr_plus'
+        algorithm: 'cfr', 'cfr_plus', 'dcfr', 'pdcfr_plus', or 'deep_cfr'
         """
         self.algorithm = algorithm
 
     def train(self, iterations):
+        # ---- Deep CFR uses a completely different training loop ----
+        if self.algorithm == 'deep_cfr':
+            from neural.train import train_deep_cfr
+            # Deep CFR default: 1M (tabular defaults to 10M)
+            dcfr_iters = 1000000 if iterations == 10000000 else iterations
+            train_deep_cfr(iterations=dcfr_iters, log_prefix=self.algorithm)
+            return
+
+        # ---- Tabular algorithms ------------------------------------
         # Select the correct CFR variant and node map
         if self.algorithm == 'cfr':
             from cfr import cfr, node_map
@@ -62,8 +71,8 @@ if __name__ == "__main__":
         "--algo", "-a",
         type=str,
         default="cfr",
-        choices=["cfr", "cfr_plus", "dcfr", "pdcfr_plus"],
-        help="Algorithm: 'cfr', 'cfr_plus', 'dcfr', or 'pdcfr_plus'"
+        choices=["cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr"],
+        help="Algorithm: 'cfr', 'cfr_plus', 'dcfr', 'pdcfr_plus', or 'deep_cfr'"
     )
     parser.add_argument(
         "--iterations", "-i",

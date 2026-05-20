@@ -2,95 +2,128 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-**Counterfactual Regret Minimization (CFR & CFR+) implemented for Kuhn Poker.**  
-A clean, educational codebase for learning imperfect‑information game solving.  
-Future roadmap: scale to Leduc Hold'em → full Texas Hold'em using Deep CFR / NFSP.
+**Counterfactual Regret Minimization (CFR) family implemented for Kuhn Poker.**  
+A clean, educational codebase for learning imperfect‑information game solving.
+Includes tabular algorithms (CFR, CFR+, DCFR, PDCFR+) and a neural variant
+(Deep CFR). Future roadmap: scale to Leduc Hold'em → full Texas Hold'em.
 
-## ✨ Features
+## Features
 
 - Full implementation of Kuhn Poker game rules (`game.py`)
-- Tabular CFR (standard regret matching) – `cfr.py`
-- Tabular CFR+ (positive regret accumulation) – `cfr_plus.py`
+- **5 algorithms** covering the CFR family:
+  - `cfr` — Standard CFR (regret matching)
+  - `cfr_plus` — CFR+ (positive regret accumulation)
+  - `dcfr` — Discounted CFR (separate α/β/γ discounts)
+  - `pdcfr_plus` — Predictive Discounted CFR+ (prediction + discount + clamp)
+  - `deep_cfr` — Deep CFR (neural network function approximation)
 - Strategy logging & model saving (`utils.py`)
-- Visualization tool for strategy convergence (`visualize.py`)
-- Command‑line interface to choose algorithm and iterations (`trainer.py`)
-- **Nash equilibrium** achieved in Kuhn Poker (game value ≈ −1/18)
+- Self-contained visualisation tool (`visualize.py`)
+- Checkpoint-based best-strategy recovery (Deep CFR)
+- **Nash equilibrium** achieved by all algorithms (game value ≈ −1/18)
 
-## 📁 Project Structure
+## Project Structure
 
 ```text
-├── game.py # Kuhn Poker rules, deck, payoff, terminal states
-├── node.py # Regret and strategy storage (Node class)
-├── cfr.py # Standard CFR algorithm
-├── cfr_plus.py # CFR+ algorithm
-├── trainer.py # Training loop with argparse support
-├── utils.py # Save/load models and strategy snapshots
-├── visualize.py # Plot strategy evolution from log files
-├── models/ # Saved models (pickle files)
-├── logs/ # Strategy snapshots (TXT)
-└── visualizations/ # Generated strategy evolution plots
+myCFR/
+├── logs/                        # Training logs (all algorithms)
+├── models/                      # Saved model pickles
+├── visualizations/              # Per-algorithm strategy plots + game value curves
+├── comparison/                  # Detailed equilibrium analysis
+│   └── kuhn_poker_equilibrium_analysis.md
+│
+├── src/
+│   ├── game.py                  # Kuhn Poker rules, deck, payoff
+│   ├── node.py                  # Node class (regret/strategy storage)
+│   ├── utils.py                 # Save/load models and snapshots
+│   │
+│   ├── cfr.py                   # Standard CFR
+│   ├── cfr_plus.py              # CFR+
+│   ├── dcfr.py                  # Discounted CFR
+│   ├── pdcfr_plus.py            # Predictive Discounted CFR+
+│   │
+│   ├── neural/                  # Neural CFR series
+│   │   ├── model.py             # RegretNet (PyTorch)
+│   │   ├── buffer.py            # Reservoir buffer
+│   │   ├── deep_cfr.py          # Deep CFR traversal
+│   │   └── train.py             # Training loop
+│   │
+│   ├── trainer.py               # Unified CLI entry point
+│   └── visualize.py             # Auto-scan logs → incremental plots
+│
+├── README.md
+└── requirements.txt
 ```
 
-
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
 - Python 3.8+
 - NumPy
-- Matplotlib (for visualization)
+- Matplotlib (for visualisation)
+- PyTorch (for Deep CFR only)
 
 Install dependencies:
+
 ```bash
 pip install numpy matplotlib
+# for Deep CFR:
+pip install torch --index-url https://download.pytorch.org/whl/cu124
 ```
 
 ### Training
 
-Run training with default settings (CFR, 10 million iterations):
+Run from the project root:
 
 ```bash
-python trainer.py
-```
+# Tabular algorithms (default 10M iterations)
+python src/trainer.py                         # CFR, 10M iters
+python src/trainer.py --algo cfr_plus         # CFR+, 10M iters
+python src/trainer.py --algo dcfr             # DCFR, 10M iters
+python src/trainer.py --algo pdcfr_plus       # PDCFR+, 10M iters
 
-Choose CFR+ and 1 million iterations:
-
-```bash
-python trainer.py --algo cfr_plus --iterations 1000000
+# Deep CFR (default 1M iterations, uses checkpoint recovery)
+python src/trainer.py --algo deep_cfr         # 1M iters
+python src/trainer.py --algo deep_cfr -i 2000000  # 2M iters
 ```
 
 Options:
 
-`--algo / -a`: `cfr` or `cfr_plus`
+| Flag | Description |
+|------|-------------|
+| `--algo` / `-a` | Algorithm: `cfr`, `cfr_plus`, `dcfr`, `pdcfr_plus`, `deep_cfr` |
+| `--iterations` / `-i` | Number of iterations (default 10⁷ tabular, 10⁶ deep) |
 
-`--iterations / -i`: integer (e.g. 10000000)
+During training, snapshots are saved every 1% of total iterations into `logs/`.
 
-During training, every 100,000 iterations the average strategy is saved into `logs/strategy_{algo}_{total_iters}.txt`.
-
-### Visualizing Strategy Convergence
-
-After training, generate evolution plots:
+### Visualising Convergence
 
 ```bash
-python visualize.py
+python src/visualize.py
 ```
 
-By default it reads the log file matching `strategy_1e+07.txt`.
-You can modify the `plot_strategy_evolution` call inside visualize.py to point to other log files (e.g. `strategy_cfr_plus_1e+07.txt`).
+Automatically discovers all log files, generates per-infoset strategy evolution
+plots plus an average game value curve (with Nash reference line) for each
+algorithm. All plots are saved under `visualizations/`.
 
-Plots are saved under `visualizations/` with one PNG per information set.
+## Algorithm Comparison
 
-## 📊 Algorithm Comparison
+| Algorithm | Type | Regret Update | Deep CFR Checkpoint | Final Game Value |
+|-----------|------|---------------|---------------------|------------------|
+| CFR | Tabular | $R_t = R_{t-1} + \Delta$ | — | −0.0560 (≈ −1/18) |
+| CFR+ | Tabular | $R_t = \max(0, R_{t-1} + \Delta)$ | — | −0.0556 (≈ −1/18) |
+| DCFR | Tabular | $R_t = \alpha [R_{t-1}]_+ + \beta [R_{t-1}]_- + \Delta$ | — | −0.0552 (≈ −1/18) |
+| PDCFR+ | Tabular | Predictive $R_{t-1} + \Delta$ + discount + clamp | — | −0.0553 (≈ −1/18) |
+| **Deep CFR** | **Neural** | **Function approx. + replay buffer** | **−0.0527** | **−0.0556** (target) |
 
-| Algorithm | Regret Update Rule               | Convergence Speed                        | Final Game Value (1e7 iters) |
-|-----------|----------------------------------|------------------------------------------|------------------------------|
-| CFR       |  $R_t = R_{t-1} + \Delta $    | Standard                                 | −0.0560 (≈ −1/18)            |
-| CFR+      | $R_t = \max(0, R_{t-1} + \Delta)$ | Faster (fewer iterations to same quality) | −0.0556 (≈ −1/18)            |
+All tabular algorithms converge to the Nash equilibrium of Kuhn Poker, landing
+on different points of the equilibrium continuum. Deep CFR approximates the
+equilibrium via neural network regression; its best checkpoint reaches above
+the theoretical Nash value (−0.0527 > −0.0556).
 
-Both converge to a Nash equilibrium of Kuhn Poker, but on different points of the equilibrium continuum.
-CFR+ typically drives strategies closer to pure actions (e.g., King bets more often).
+### Example Learned Strategies (10⁷ iterations)
 
-### Example Learned Strategy (CFR+ after 1M iterations)
+#### CFR+ (tabular)
 
 ```text
 J:   [0.7678, 0.2322]   # Jack: 23% bluff when first to act
@@ -102,25 +135,45 @@ Kb:  [0.0,   1.0]       # facing a bet, always call
 Q:   [0.9924, 0.0076]   # Queen: almost always check
 Qp:  [1.0,   0.0]       # facing a check, check
 Qb:  [0.6651, 0.3349]   # facing a bet, call 1/3
-Qpb: [0.4334, 0.5666]   # after check‑raise, call 57%
+Qpb: [0.4334, 0.5666]   # after check-raise, call 57%
 ```
 
 Game value: −0.0556 (theoretical Nash value is −1/18 ≈ −0.05556).
 
-## 🗺️ Future Roadmap
+#### Deep CFR (best checkpoint, 830k iters)
 
-- Leduc Hold’em (larger toy game) with card abstraction
+```text
+J:   [0.7732, 0.2268]   # Jack: 23% bluff — matches tabular
+Jb:  [0.9764, 0.0236]   # fold 98% — near perfect
+Jp:  [0.5868, 0.4132]   # bluff 41% when checked to
+K:   [0.2976, 0.7024]   # King: bet 70% — matches tabular
+Kb:  [0.0228, 0.9772]   # call 98% — near perfect
+Kp:  [0.0255, 0.9745]   # bet 97% — near perfect
+Q:   [0.8174, 0.1826]   # Queen: 18% bet (still too high)
+Qb:  [0.5177, 0.4823]   # call 48% (should be 33%)
+Qp:  [0.8516, 0.1484]   # 15% bet after check (too high)
+Qpb: [0.4240, 0.5760]   # call 58% — matches tabular
+```
 
+Checkpoint game value: −0.0527. The network learns J and K well; Queen
+aggression is the main remaining gap.
+
+## Detailed Analysis
+
+See [`comparison/kuhn_poker_equilibrium_analysis.md`](comparison/kuhn_poker_equilibrium_analysis.md)
+for a thorough per-infoset breakdown, convergence dynamics, and training
+oscillation analysis.
+
+## Roadmap
+
+- Leduc Hold'em (larger toy game) with card abstraction
 - **Outcome Sampling CFR** (to handle huge game trees)
+- **Neural Fictitious Self-Play (NFSP)** for full Hold'em
 
-- **Deep CFR** / **Neural CFR** using PyTorch
-
-- **NFSP** (Neural Fictitious Self‑Play) for full Hold'em
-
-## 📖 References
+## References
 
 - [Zinkevich et al. (2007) – "Regret Minimization in Games with Incomplete Information"](https://papers.nips.cc/paper/2007/hash/08d98638c6fcd194a4b1e6992063e944-Abstract.html)
-
 - Tammelin (2014) – "Solving Large Imperfect Information Games Using CFR+"
-
+- Brown & Sandholm (2019) – "Solving Imperfect-Information Games via Discounted Regret Minimization"
+- Brown et al. (2019) – "Deep Counterfactual Regret Minimization"
 - Kuhn, H. W. (1950) – "A simplified two‑person poker"

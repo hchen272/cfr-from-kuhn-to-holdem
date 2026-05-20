@@ -80,20 +80,47 @@ def _read_log(filepath):
     return history
 
 
+def _read_game_values(filepath):
+    """
+    Extract the (iteration, average_game_value) progression from a log file.
+
+    Returns:
+        dict: {"iters": [int, ...], "values": [float, ...]}
+    """
+    iters = []
+    values = []
+    current_iter = None
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("Iterations:"):
+                current_iter = int(line.split(":")[1].strip())
+            elif line.startswith("Average game value:"):
+                val = float(line.split(":")[1].strip())
+                if current_iter is not None:
+                    iters.append(current_iter)
+                    values.append(val)
+
+    return {"iters": iters, "values": values}
+
+
 def plot_strategy_evolution(filepath, algo, iters_str):
     """
-    Plot strategy evolution for every infoset found in *filepath*.
+    Plot strategy evolution for every infoset found in *filepath*,
+    plus the overall average game value progression.
 
-    Saves one PNG per infoset under:  visualizations/{algo}_{iters_str}/
+    Saves one PNG per infoset plus ``game_value.png`` under::
+
+        visualizations/{algo}_{iters_str}/
     """
     history = _read_log(filepath)
-    if not history:
-        print(f"  [WARN] No strategy data found in {filepath}")
-        return
+    game_values = _read_game_values(filepath)
 
     output_dir = _folder_path(algo, iters_str)
     os.makedirs(output_dir, exist_ok=True)
 
+    # ---- per-infoset strategy plots ---------------------------------
     for infoset, data in history.items():
         plt.figure(figsize=(8, 5))
         plt.plot(data["iters"], data["values"])
@@ -106,6 +133,26 @@ def plot_strategy_evolution(filepath, algo, iters_str):
         plt.savefig(out_path, dpi=300, bbox_inches="tight")
         plt.close()
         print(f"  Saved: {out_path}")
+
+    # ---- average game value plot ------------------------------------
+    if game_values["iters"]:
+        plt.figure(figsize=(8, 5))
+        plt.plot(game_values["iters"], game_values["values"],
+                 label="Average game value")
+        plt.axhline(y=-1/18, color="r", linestyle="--", linewidth=1,
+                    label=f"Nash equilibrium (-1/18 ≈ -0.0556)")
+        plt.xlabel("Iterations")
+        plt.ylabel("Average Game Value (player 0)")
+        plt.title(f"Average Game Value – {algo}_{iters_str}")
+        plt.legend()
+        plt.grid(True)
+
+        out_path = os.path.join(output_dir, "game_value.png")
+        plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.close()
+        print(f"  Saved: {out_path}")
+    else:
+        print(f"  [WARN] No game-value data found in {filepath}")
 
 
 if __name__ == "__main__":
@@ -120,12 +167,6 @@ if __name__ == "__main__":
 
         if algo is None:
             print(f"[SKIP]  Unrecognised filename: {os.path.basename(log_file)}")
-            continue
-
-        folder = _folder_path(algo, iters_str)
-
-        if os.path.isdir(folder):
-            print(f"[SKIP]  {algo}_{iters_str}  — folder already exists")
             continue
 
         print(f"[WORK]  {algo}_{iters_str}  ← {os.path.basename(log_file)}")
