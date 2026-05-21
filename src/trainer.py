@@ -25,7 +25,30 @@ class Trainer:
             out[key] = node
         return out
 
-    def train(self, iterations):
+    def _batch_deals(self):
+        """Return list of (cards, comm_rank) tuples for all possible deals."""
+        game = self.game
+        if game.name == 'kuhn':
+            ranks = ['J','Q','K']
+            deals = []
+            for p0 in ranks:
+                for p1 in ranks:
+                    if p1 != p0:
+                        deals.append(((p0, p1), ''))
+            return deals
+        elif game.name == 'leduc':
+            ranks = ['J','Q','K']
+            deals = []
+            for p0 in ranks:
+                for p1 in ranks:
+                    if p1 != p0:
+                        for comm in self.tree._comm_ranks:
+                            deals.append(((p0, p1), comm))
+            return deals
+        else:
+            raise ValueError(f"Unknown game: {game.name}")
+
+    def train(self, iterations, batch=False):
         # ---- Deep CFR uses a completely different training loop ----
         if self.algorithm == 'deep_cfr':
             from neural.train import train_deep_cfr
@@ -56,6 +79,15 @@ class Trainer:
         else:
             raise ValueError(f"Unknown algorithm: {self.algorithm}")
 
+        # Pre-compute batch deals list if needed
+        if batch:
+            batch_deals = self._batch_deals()
+            n_batch = len(batch_deals)
+            print(f"Batch mode: {n_batch} deal(s) per iteration ({self.game.name})")
+        else:
+            batch_deals = None
+            n_batch = 1
+
         # Clean logs (write header)
         conv = self._converted_node_map(node_map)
         save_strategy_txt(conv, 0, 0, iterations, self.algorithm,
@@ -66,25 +98,35 @@ class Trainer:
         root_hid = 0  # empty history always gets ID 0
 
         for i in range(iterations):
-            cards = game.deal_cards()
-            comm_rank = ""
-            if self.tree._comm_ranks:
-                comm = getattr(game, '_comm', None)
-                if comm is not None:
-                    comm_rank = comm[0] if isinstance(comm, tuple) else comm
-
-            # Increment iter counter for DCFR/PDCFR+
-            if 'iter_cnt_ref' in extra:
-                extra['iter_cnt_ref'][0] += 1
-
             # Alternating updates: swap every iteration (paper's standard)
             if self.alternate:
                 extra['update_player'] = i % 2  # 0 → P0, 1 → P1
             else:
                 extra['update_player'] = -1  # both
 
-            total_util += cfr_fn(self.tree, cards, comm_rank,
-                                 root_hid, 1.0, 1.0, node_map, **extra)
+            # Increment iter counter for DCFR/PDCFR+ (once per outer iter)
+            if 'iter_cnt_ref' in extra:
+                extra['iter_cnt_ref'][0] += 1
+
+            iter_util = 0.0
+
+            if batch:
+                for cards, comm_rank in batch_deals:
+                    game._comm = (comm_rank, 0) if comm_rank else game._comm
+                    iter_util += cfr_fn(self.tree, cards, comm_rank,
+                                        root_hid, 1.0, 1.0, node_map, **extra)
+                iter_util /= n_batch  # average over all deals
+            else:
+                cards = game.deal_cards()
+                comm_rank = ""
+                if self.tree._comm_ranks:
+                    comm = getattr(game, '_comm', None)
+                    if comm is not None:
+                        comm_rank = comm[0] if isinstance(comm, tuple) else comm
+                iter_util = cfr_fn(self.tree, cards, comm_rank,
+                                   root_hid, 1.0, 1.0, node_map, **extra)
+
+            total_util += iter_util
 
             if (i + 1) % 100000 == 0:
                 avg_value = round(total_util / (i + 1), 4)
@@ -131,8 +173,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable alternating updates (P0 / P1 every 50k iters)"
     )
+    parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="Enumerate all possible (cards, comm) combos each iteration"
+    )
     args = parser.parse_args()
 
     trainer = Trainer(algorithm=args.algo, game_name=args.game,
                       alternate=args.alternate)
-    trainer.train(args.iterations)
+    trainer.train(args.iterations, batch=args.batch)

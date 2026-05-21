@@ -12,18 +12,21 @@ multiple poker games.
 
 - **2 games**: Kuhn Poker (`games/kuhn.py`) + Leduc Hold'em (`games/leduc.py`)
 - Game abstraction layer (`games/`, `game_selector.py`) — easy to add new games
-- Dynamic file naming (`{game_name}_strategy_*`, `{game_name}_model_*`)
-- **5 algorithms** covering the CFR family:
+- **Pre-computed game tree** (`tabular/game_tree.py`) — integer-encoded tree with payoff cache, **~3× speedup** over string-based traversal
+- **5 tabular algorithms** (two implementations each):
   - `cfr` — Standard CFR (regret matching)
   - `cfr_plus` — CFR+ (positive regret accumulation)
   - `dcfr` — Discounted CFR (separate α/β/γ discounts)
   - `pdcfr_plus` — Predictive Discounted CFR+ (prediction + discount + clamp)
-  - `deep_cfr` — Deep CFR (neural network function approximation)
+- **Batch mode** (`--batch`) — enumerates all (P0,P1,comm) combos per iteration for 18× more data per outer loop
+- **Alternating updates** (`--alternate`) — P0/P1 swap each iteration
+- 1 **neural variant**: Deep CFR (`neural/`, PyTorch)
 - Strategy logging & model saving (`utils.py`)
+- **Exploitability checker** (`check_exploit.py`) — brute-force Nash distance
 - Self-contained visualisation tool (`visualize.py`)
 - Checkpoint-based best-strategy recovery (Deep CFR)
 - **Kuhn Poker**: Nash equilibrium achieved by all algorithms (game value ≈ −1/18)
-- **Leduc Hold'em**: Implemented; needs 10⁸+ iterations for convergence
+- **Leduc Hold'em**: Implemented; known slow convergence (needs 10⁸+ iterations)
 
 ## Project Structure
 
@@ -42,13 +45,11 @@ myCFR/
 │   │   └── leduc.py             # LeducGame(Game) — ~620 infosets
 │   ├── game_selector.py         # get_game(name) → Game instance
 │   ├── game.py                  # Backward-compat re-export
-│   ├── node.py                  # Node class (regret/strategy storage)
-│   ├── utils.py                 # Save/load models and snapshots
 │   │
-│   ├── cfr.py                   # Standard CFR
-│   ├── cfr_plus.py              # CFR+
-│   ├── dcfr.py                  # Discounted CFR
-│   ├── pdcfr_plus.py            # Predictive Discounted CFR+
+│   ├── tabular/                 # Pre-computed game tree + tree-based CFR
+│   │   ├── game_tree.py         # GameTree BFS builder, payoff cache, IID map
+│   │   ├── node.py              # Node class (regret/strategy storage)
+│   │   └── cfr_tree.py          # 4 tree-based CFR functions
 │   │
 │   ├── neural/                  # Neural CFR series
 │   │   ├── model.py             # RegretNet (PyTorch)
@@ -57,8 +58,10 @@ myCFR/
 │   │   └── train.py             # Training loop
 │   │
 │   ├── trainer.py               # Unified CLI entry point
+│   ├── check_exploit.py         # Brute-force exploitability checker
 │   └── visualize.py             # Auto-scan logs → plots
 │
+├── ancestor.md                  # Project state summary (for AI onboarding)
 ├── README.md
 ├── roadmap.md                   # Leduc Hold'em expansion roadmap
 └── requirements.txt
@@ -96,8 +99,12 @@ python src/trainer.py -a deep_cfr             # Deep CFR, Kuhn, 1M iters
 
 # ── Leduc Hold'em (needs 10⁸+ iters, Nash ≈ −0.085) ──
 python src/trainer.py -a cfr -g leduc -i 10000000
-python src/trainer.py -a cfr_plus -g leduc -i 10000000
+python src/trainer.py -a cfr_plus -g leduc -i 10000000 --batch
+python src/trainer.py -a pdcfr_plus -g leduc -i 1000000 --batch --alternate
 python src/trainer.py -a deep_cfr -g leduc -i 1000000
+
+# ── Evaluate strategy quality (exploitability) ──
+python src/check_exploit.py leduc_cfr_plus_5e+06 --game leduc
 ```
 
 Options:
@@ -107,6 +114,8 @@ Options:
 | `--algo` / `-a` | Algorithm: `cfr`, `cfr_plus`, `dcfr`, `pdcfr_plus`, `deep_cfr` |
 | `--iterations` / `-i` | Number of iterations (default 10⁷ tabular, 10⁶ deep) |
 | `--game` / `-g` | Game: `kuhn` (default) or `leduc` |
+| `--batch` | Enumerate all (P0,P1,comm) combos per iteration (18× for Leduc) |
+| `--alternate` | Alternating P0/P1 updates each iteration |
 
 During training, snapshots are saved every 1% of total iterations into `logs/`
 as `{game_name}_strategy_{algo}_{iters}.txt`. Models are saved to `models/`
