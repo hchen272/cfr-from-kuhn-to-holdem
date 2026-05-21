@@ -193,7 +193,7 @@ oscillation analysis.
 
 ## References
 
-- [Zinkevich et al. (2007) – "Regret Minimization in Games with Incomplete Information"](https://papers.nips.cc/paper/2007/hash/08d98638c6fcd194a4b1e6992063e944-Abstract.html)
+- Zinkevich et al. (2007) – "Regret Minimization in Games with Incomplete Information"
 - Tammelin (2014) – "Solving Large Imperfect Information Games Using CFR+"
 - Brown & Sandholm (2019) – "Solving Imperfect-Information Games via Discounted Regret Minimization"
 - Brown et al. (2019) – "Deep Counterfactual Regret Minimization"
