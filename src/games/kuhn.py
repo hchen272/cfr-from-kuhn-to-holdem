@@ -38,6 +38,10 @@ class KuhnGame(Game):
     def feature_dim(self) -> int:
         return 5
 
+    @property
+    def nash_value(self) -> float:
+        return -1.0 / 18.0   # ≈ -0.0556
+
     # ── State queries ───────────────────────────────────────────────────
 
     def is_terminal(self, history: str) -> bool:

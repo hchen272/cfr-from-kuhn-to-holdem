@@ -1,6 +1,7 @@
 # folder
 models/
 visualizations/
+logs/
 __pycache__/
 ancestor.md
 roadmap.md

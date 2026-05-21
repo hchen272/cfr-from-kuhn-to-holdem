@@ -78,8 +78,9 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
     total_util = 0.0
     snapshot_every = max(1, iterations // 100)   # ~100 full snapshots
 
-    # Checkpoint: track the best average game value and corresponding strategy
-    best_avg_value = -float("inf")
+    # Checkpoint: track strategy closest to Nash equilibrium value
+    nash = getattr(game, 'nash_value', None)
+    best_dist = float("inf")
     best_strategy_sum = None
 
     for episode in range(1, iterations + 1):
@@ -99,13 +100,14 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
             print(f"  Episode {episode:>8,}  |  avg value: {avg_val:.4f}  "
                   f"|  buffer: {len(buffer):,}")
 
-            # Checkpoint: save if this is the best average value so far
-            if avg_val > best_avg_value:
-                best_avg_value = avg_val
+            # Checkpoint: save if closer to Nash value
+            dist = abs(avg_val - nash) if nash is not None else float("inf")
+            if dist < best_dist:
+                best_dist = dist
                 best_strategy_sum = {
                     k: v.copy() for k, v in agent.strategy_sum.items()
                 }
-                print(f"           ✓ new best (saved at episode {episode})")
+                print(f"           ✓ new best (avg={avg_val:.4f}, dist_to_nash={dist:.4f})")
 
         # --- full snapshot (log + strategies) ------------------------
         if episode % snapshot_every == 0:
@@ -117,8 +119,8 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
     # --- restore best checkpoint for final output --------------------
     if best_strategy_sum is not None:
         agent.strategy_sum = best_strategy_sum
-        print(f"\n[CHECKPOINT] Restored best strategy from episode "
-              f"with avg value: {best_avg_value:.4f}")
+        print(f"\n[CHECKPOINT] Restored best strategy "
+              f"(dist to Nash={best_dist:.4f})")
 
     # --- final output ------------------------------------------------
     _print_final_strategies(agent, total_util, iterations)

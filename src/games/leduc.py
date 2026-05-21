@@ -80,7 +80,11 @@ class LeducGame(Game):
 
     @property
     def feature_dim(self) -> int:
-        return 20
+        return 19
+
+    @property
+    def nash_value(self) -> float:
+        return -0.0855   # known Leduc value for P0
 
     # ── Deal ────────────────────────────────────────────────────────────
 

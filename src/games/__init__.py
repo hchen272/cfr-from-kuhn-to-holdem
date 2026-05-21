@@ -35,6 +35,11 @@ class Game(ABC):
     def feature_dim(self) -> int:
         """Dimension of the feature vector for neural-network input."""
 
+    @property
+    def nash_value(self) -> float:
+        """Known Nash equilibrium game value for P0 (or None if unknown)."""
+        return None
+
     # ── State queries ──────────────────────────────────────────────────
 
     @abstractmethod
