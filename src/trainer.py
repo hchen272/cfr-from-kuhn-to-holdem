@@ -12,7 +12,7 @@ class Trainer:
         self.game = get_game(game_name)
 
         # Build pre-computed game tree (integer-encoded, payoff-cached)
-        from game_tree import GameTree
+        from tabular.game_tree import GameTree
         self.tree = GameTree(self.game)
 
     def _converted_node_map(self, raw_map):
@@ -33,8 +33,8 @@ class Trainer:
             return
 
         # ---- Tabular tree-based algorithms ----
-        from cfr_tree import (cfr_tree, cfr_plus_tree,
-                              dcfr_tree, pdcfr_plus_tree)
+        from tabular.cfr_tree import (cfr_tree, cfr_plus_tree,
+                                      dcfr_tree, pdcfr_plus_tree)
 
         node_map = {}  # local, keyed by integer infoset ID
 

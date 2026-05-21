@@ -15,7 +15,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from game_selector import get_game
-from node import NUM_ACTIONS
+from tabular.node import NUM_ACTIONS
 from neural.model import RegretNet, get_strategy_from_regrets
 from neural.buffer import ReservoirBuffer
 from neural.deep_cfr import DeepCFR

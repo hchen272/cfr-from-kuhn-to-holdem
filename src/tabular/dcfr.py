@@ -1,5 +1,5 @@
 import numpy as np
-from node import Node
+from tabular.node import Node
 
 # Separate node map for DCFR
 node_map_dcfr = {}

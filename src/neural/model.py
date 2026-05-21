@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from node import NUM_ACTIONS
+from tabular.node import NUM_ACTIONS
 
 
 class RegretNet(nn.Module):

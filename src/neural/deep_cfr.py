@@ -14,7 +14,7 @@ the reservoir buffer, and the strategy-accumulation dict.
 
 import numpy as np
 
-from node import NUM_ACTIONS
+from tabular.node import NUM_ACTIONS
 from neural.model import get_strategy_from_regrets
 
 
@@ -83,6 +83,22 @@ class DeepCFR:
         # ---- regret matching ----------------------------------------
         strategy = get_strategy_from_regrets(regrets, game.num_actions)
 
+        # ---- zero out illegal actions & re-normalise ---------------
+        legal_actions = game.get_legal_actions(history)
+        legal_set = set(legal_actions)
+        for a in range(game.num_actions):
+            if game.ACTIONS[a] not in legal_set:
+                strategy[a] = 0.0
+        ssum = strategy.sum()
+        if ssum > 0:
+            strategy /= ssum
+        else:
+            n_legal = len(legal_actions)
+            strategy[:] = 0.0
+            for a in range(game.num_actions):
+                if game.ACTIONS[a] in legal_set:
+                    strategy[a] = 1.0 / n_legal
+
         # ---- accumulate average strategy ----------------------------
         reach_prob = p0 if player == 0 else p1
         if infoset not in self.strategy_sum:
@@ -93,9 +109,6 @@ class DeepCFR:
         na = game.num_actions
         util = np.zeros(na, dtype=np.float64)
         node_util = 0.0
-
-        legal_actions = game.get_legal_actions(history)
-        legal_set = set(legal_actions)
 
         for a in range(na):
             if game.ACTIONS[a] not in legal_set:
