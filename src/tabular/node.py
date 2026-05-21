@@ -25,7 +25,8 @@ class Node:
         # cumulative strategy
         self.strategy_sum = np.zeros(num_actions)
 
-    def get_strategy(self, realization_weight, strategy_discount=1.0):
+    def get_strategy(self, realization_weight, strategy_discount=1.0,
+                     linear_weight=1.0):
         """
         Compute current strategy using regret matching.
 
@@ -36,6 +37,11 @@ class Node:
             strategy_discount (float):
                 discount factor applied to strategy_sum before accumulation
                 (used by DCFR; defaults to 1.0 for standard CFR / CFR+)
+
+            linear_weight (float):
+                iteration weight for linear averaging (CFR+).
+                ``strategy_sum += linear_weight * reach_prob * strategy``.
+                Defaults to 1.0 (uniform averaging) for standard CFR.
 
         Returns:
             np.array:
@@ -60,10 +66,11 @@ class Node:
                 # uniform random strategy
                 self.strategy[a] = 1.0 / self.num_actions
 
-            # accumulate average strategy (with optional DCFR discount)
+            # accumulate average strategy (with optional DCFR discount
+            # and CFR+ linear weight)
             self.strategy_sum[a] = (
                 strategy_discount * self.strategy_sum[a]
-                + realization_weight * self.strategy[a]
+                + (linear_weight * realization_weight) * self.strategy[a]
             )
 
         return self.strategy

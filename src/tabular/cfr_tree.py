@@ -66,11 +66,21 @@ def cfr_tree(tree, cards, comm_rank, hid, p0, p1, node_map):
 
 
 # ════════════════════════════════════════════════════════════════════
-#  CFR+ (tree version)
+#  CFR+ (tree version)  —  with linear averaging
 # ════════════════════════════════════════════════════════════════════
 
-def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map):
-    """CFR+ backed by a pre-computed game tree."""
+def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
+                  iter_cnt_ref=None):
+    """CFR+ backed by a pre-computed game tree.
+
+    Uses *linear averaging* (CFR+ original paper: Tammelin 2014):
+    later iterations contribute more to the average strategy, giving
+    O(1/T) convergence instead of O(1/√T).
+
+    The iteration counter is passed via ``iter_cnt_ref`` (mutable list
+    with one element) to avoid modifying the recursive call signature.
+    When omitted, falls back to uniform averaging.
+    """
     node_info = tree.nodes[hid]
     player = node_info.player
     opponent = 1 - player
@@ -85,7 +95,10 @@ def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map):
     node = node_map[iid]
 
     reach_prob = p0 if player == 0 else p1
-    strategy = node.get_strategy(reach_prob)
+
+    # linear weight: later iterations → larger contribution
+    lw = float(iter_cnt_ref[0]) if iter_cnt_ref is not None else 1.0
+    strategy = node.get_strategy(reach_prob, linear_weight=lw)
 
     na = tree.num_actions
     util = np.zeros(na)
@@ -97,10 +110,12 @@ def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map):
             continue
         if player == 0:
             util[a] = -cfr_plus_tree(tree, cards, comm_rank, child_hid,
-                                     p0 * strategy[a], p1, node_map)
+                                     p0 * strategy[a], p1, node_map,
+                                     iter_cnt_ref=iter_cnt_ref)
         else:
             util[a] = -cfr_plus_tree(tree, cards, comm_rank, child_hid,
-                                     p0, p1 * strategy[a], node_map)
+                                     p0, p1 * strategy[a], node_map,
+                                     iter_cnt_ref=iter_cnt_ref)
         node_util += strategy[a] * util[a]
 
     for a in node_info.legal_actions:

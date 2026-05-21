@@ -44,7 +44,7 @@ class Trainer:
             extra = {}
         elif self.algorithm == 'cfr_plus':
             cfr_fn = cfr_plus_tree
-            extra = {}
+            extra = {'iter_cnt_ref': [0]}
         elif self.algorithm == 'dcfr':
             cfr_fn = dcfr_tree
             extra = {'iter_cnt_ref': [0], 'alpha': 1.5, 'beta': 0.0, 'gamma': 2.0}

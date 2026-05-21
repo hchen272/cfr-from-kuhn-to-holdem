@@ -22,16 +22,24 @@ from neural.deep_cfr import DeepCFR
 from utils import save_strategy_txt, save_model
 
 # ──────────────────────────────────────────────────────────────────────
-#  Hyper-parameters (sensible defaults for Kuhn Poker)
+#  Hyper-parameters (sensible defaults for Kuhn / Leduc)
 # ──────────────────────────────────────────────────────────────────────
 HIDDEN_DIM = 32
-BUFFER_CAPACITY = 200_000
 BATCH_SIZE = 512
-TRAIN_FREQ = 20           # train the network every K episodes
-TRAIN_STEPS = 10          # gradient steps per training event (was 5)
+TRAIN_FREQ = 20                   # train the network every K episodes
+TRAIN_STEPS = 10                  # gradient steps per training event
 LEARNING_RATE = 0.001
-WARM_START_RATIO = 5      # 1/WARM_START_RATIO of buffer filled with random play
-PROGRESS_EVERY = 5000     # print a one-line progress every N episodes
+WARM_START_RATIO = 10             # 1/WARM_START_RATIO of buffer filled with random play
+PROGRESS_EVERY = 5000             # print a one-line progress every N episodes
+
+
+def _buffer_capacity(iterations):
+    """Dynamically-sized buffer: bigger for more iterations so that each
+    buffer entry is not re-sampled too many times.
+
+    Formula:  floor(iterations × 0.2),  clamped to [50 000, 500 000].
+    """
+    return max(50_000, min(int(iterations * 0.2), 500_000))
 
 
 def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
@@ -60,18 +68,19 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
         print("Using CPU")
 
     # --- initialise components ---------------------------------------
+    capacity = _buffer_capacity(iterations)
     regret_net = RegretNet(input_dim=game.feature_dim,
                            hidden_dim=HIDDEN_DIM,
                            output_dim=game.num_actions).to(device)
     optimizer = optim.Adam(regret_net.parameters(), lr=LEARNING_RATE)
     loss_fn = nn.MSELoss()
 
-    buffer = ReservoirBuffer(capacity=BUFFER_CAPACITY)
+    buffer = ReservoirBuffer(capacity=capacity)
     agent = DeepCFR(regret_net, buffer, game, device=device)
     node_map_for_logging = {}      # see note below
 
     # --- warm-start: fill buffer with a small amount of random play --
-    warm_start_n = max(1, BUFFER_CAPACITY // WARM_START_RATIO)
+    warm_start_n = max(1, capacity // WARM_START_RATIO)
     _warm_start_buffer(buffer, n=warm_start_n, agent=agent, game=game)
 
     # --- main training loop ------------------------------------------
@@ -107,7 +116,7 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
                 best_strategy_sum = {
                     k: v.copy() for k, v in agent.strategy_sum.items()
                 }
-                print(f"           ✓ new best (avg={avg_val:.4f}, dist_to_nash={dist:.4f})")
+                print(f"           [new best] (avg={avg_val:.4f}, dist_to_nash={dist:.4f})")
 
         # --- full snapshot (log + strategies) ------------------------
         if episode % snapshot_every == 0:
