@@ -6,9 +6,11 @@ from utils import save_strategy_txt, save_model
 
 class Trainer:
 
-    def __init__(self, algorithm='cfr', game_name='kuhn'):
+    def __init__(self, algorithm='cfr', game_name='kuhn',
+                 alternate=False):
         self.algorithm = algorithm
         self.game_name = game_name
+        self.alternate = alternate
         self.game = get_game(game_name)
 
         # Build pre-computed game tree (integer-encoded, payoff-cached)
@@ -75,6 +77,12 @@ class Trainer:
             if 'iter_cnt_ref' in extra:
                 extra['iter_cnt_ref'][0] += 1
 
+            # Alternating updates: swap every iteration (paper's standard)
+            if self.alternate:
+                extra['update_player'] = i % 2  # 0 → P0, 1 → P1
+            else:
+                extra['update_player'] = -1  # both
+
             total_util += cfr_fn(self.tree, cards, comm_rank,
                                  root_hid, 1.0, 1.0, node_map, **extra)
 
@@ -118,7 +126,13 @@ if __name__ == "__main__":
         choices=["kuhn", "leduc"],
         help="Game: 'kuhn' (default) or 'leduc' (when implemented)"
     )
+    parser.add_argument(
+        "--alternate",
+        action="store_true",
+        help="Enable alternating updates (P0 / P1 every 50k iters)"
+    )
     args = parser.parse_args()
 
-    trainer = Trainer(algorithm=args.algo, game_name=args.game)
+    trainer = Trainer(algorithm=args.algo, game_name=args.game,
+                      alternate=args.alternate)
     trainer.train(args.iterations)

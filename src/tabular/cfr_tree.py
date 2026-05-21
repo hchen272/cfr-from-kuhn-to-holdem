@@ -21,8 +21,15 @@ from tabular.node import Node
 #  Standard CFR (tree version)
 # ════════════════════════════════════════════════════════════════════
 
-def cfr_tree(tree, cards, comm_rank, hid, p0, p1, node_map):
-    """Standard CFR backed by a pre-computed game tree."""
+def cfr_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
+             update_player=-1):
+    """Standard CFR backed by a pre-computed game tree.
+
+    ``update_player`` controls which player's regrets are updated:
+      -1 = both (default, standard CFR).
+       0 = only P0.
+       1 = only P1.
+    """
     node_info = tree.nodes[hid]
     player = node_info.player
     opponent = 1 - player
@@ -49,18 +56,21 @@ def cfr_tree(tree, cards, comm_rank, hid, p0, p1, node_map):
             continue
         if player == 0:
             util[a] = -cfr_tree(tree, cards, comm_rank, child_hid,
-                                p0 * strategy[a], p1, node_map)
+                                p0 * strategy[a], p1, node_map,
+                                update_player=update_player)
         else:
             util[a] = -cfr_tree(tree, cards, comm_rank, child_hid,
-                                p0, p1 * strategy[a], node_map)
+                                p0, p1 * strategy[a], node_map,
+                                update_player=update_player)
         node_util += strategy[a] * util[a]
 
-    for a in node_info.legal_actions:
-        regret = util[a] - node_util
-        if player == 0:
-            node.regret_sum[a] += p1 * regret
-        else:
-            node.regret_sum[a] += p0 * regret
+    if update_player == -1 or update_player == player:
+        for a in node_info.legal_actions:
+            regret = util[a] - node_util
+            if player == 0:
+                node.regret_sum[a] += p1 * regret
+            else:
+                node.regret_sum[a] += p0 * regret
 
     return node_util
 
@@ -70,7 +80,7 @@ def cfr_tree(tree, cards, comm_rank, hid, p0, p1, node_map):
 # ════════════════════════════════════════════════════════════════════
 
 def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
-                  iter_cnt_ref=None):
+                  iter_cnt_ref=None, update_player=-1):
     """CFR+ backed by a pre-computed game tree.
 
     Uses *linear averaging* (CFR+ original paper: Tammelin 2014):
@@ -80,6 +90,11 @@ def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
     The iteration counter is passed via ``iter_cnt_ref`` (mutable list
     with one element) to avoid modifying the recursive call signature.
     When omitted, falls back to uniform averaging.
+
+    ``update_player`` controls which player's regrets are updated:
+      -1 = both (default).
+       0 = only P0.
+       1 = only P1.
     """
     node_info = tree.nodes[hid]
     player = node_info.player
@@ -111,17 +126,20 @@ def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
         if player == 0:
             util[a] = -cfr_plus_tree(tree, cards, comm_rank, child_hid,
                                      p0 * strategy[a], p1, node_map,
-                                     iter_cnt_ref=iter_cnt_ref)
+                                     iter_cnt_ref=iter_cnt_ref,
+                                     update_player=update_player)
         else:
             util[a] = -cfr_plus_tree(tree, cards, comm_rank, child_hid,
                                      p0, p1 * strategy[a], node_map,
-                                     iter_cnt_ref=iter_cnt_ref)
+                                     iter_cnt_ref=iter_cnt_ref,
+                                     update_player=update_player)
         node_util += strategy[a] * util[a]
 
-    for a in node_info.legal_actions:
-        regret = util[a] - node_util
-        wt = p1 if player == 0 else p0
-        node.regret_sum[a] = max(0.0, node.regret_sum[a] + wt * regret)
+    if update_player == -1 or update_player == player:
+        for a in node_info.legal_actions:
+            regret = util[a] - node_util
+            wt = p1 if player == 0 else p0
+            node.regret_sum[a] = max(0.0, node.regret_sum[a] + wt * regret)
 
     return node_util
 
@@ -135,11 +153,17 @@ def _discount(t, exponent):
 
 
 def dcfr_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
-              iter_cnt_ref, alpha=1.5, beta=0.0, gamma=2.0):
+              iter_cnt_ref, alpha=1.5, beta=0.0, gamma=2.0,
+              update_player=-1):
     """Discounted CFR backed by a pre-computed game tree.
 
     ``iter_cnt_ref`` should be a single-element list [N] that is
     incremented by the caller once per root call before invoking.
+
+    ``update_player`` controls which player's regrets are updated:
+      -1 = both (default).
+       0 = only P0.
+       1 = only P1.
     """
     node_info = tree.nodes[hid]
     player = node_info.player
@@ -170,23 +194,25 @@ def dcfr_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
         if player == 0:
             util[a] = -dcfr_tree(tree, cards, comm_rank, child_hid,
                                  p0 * strategy[a], p1, node_map, iter_cnt_ref,
-                                 alpha, beta, gamma)
+                                 alpha, beta, gamma,
+                                 update_player=update_player)
         else:
             util[a] = -dcfr_tree(tree, cards, comm_rank, child_hid,
                                  p0, p1 * strategy[a], node_map, iter_cnt_ref,
-                                 alpha, beta, gamma)
+                                 alpha, beta, gamma,
+                                 update_player=update_player)
         node_util += strategy[a] * util[a]
 
-    pos_d = _discount(t, alpha)
-    neg_d = _discount(t, beta)
-
-    for a in node_info.legal_actions:
-        regret = util[a] - node_util
-        wt = p1 if player == 0 else p0
-        weighted = wt * regret
-        prev = node.regret_sum[a]
-        discounted = pos_d * max(prev, 0.0) + neg_d * min(prev, 0.0)
-        node.regret_sum[a] = discounted + weighted
+    if update_player == -1 or update_player == player:
+        pos_d = _discount(t, alpha)
+        neg_d = _discount(t, beta)
+        for a in node_info.legal_actions:
+            regret = util[a] - node_util
+            wt = p1 if player == 0 else p0
+            weighted = wt * regret
+            prev = node.regret_sum[a]
+            discounted = pos_d * max(prev, 0.0) + neg_d * min(prev, 0.0)
+            node.regret_sum[a] = discounted + weighted
 
     return node_util
 
@@ -209,8 +235,15 @@ def _predictive_strategy(node, num_actions):
 
 
 def pdcfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
-                    iter_cnt_ref, alpha=1.5, beta=0.0, gamma=2.0):
-    """Predictive Discounted CFR+ backed by a pre-computed game tree."""
+                    iter_cnt_ref, alpha=1.5, beta=0.0, gamma=2.0,
+                    update_player=-1):
+    """Predictive Discounted CFR+ backed by a pre-computed game tree.
+
+    ``update_player`` controls which player's regrets are updated:
+      -1 = both (default).
+       0 = only P0.
+       1 = only P1.
+    """
     node_info = tree.nodes[hid]
     player = node_info.player
     opponent = 1 - player
@@ -240,26 +273,28 @@ def pdcfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
         if player == 0:
             util[a] = -pdcfr_plus_tree(tree, cards, comm_rank, child_hid,
                                        p0 * strategy[a], p1, node_map,
-                                       iter_cnt_ref, alpha, beta, gamma)
+                                       iter_cnt_ref, alpha, beta, gamma,
+                                       update_player=update_player)
         else:
             util[a] = -pdcfr_plus_tree(tree, cards, comm_rank, child_hid,
                                        p0, p1 * strategy[a], node_map,
-                                       iter_cnt_ref, alpha, beta, gamma)
+                                       iter_cnt_ref, alpha, beta, gamma,
+                                       update_player=update_player)
         node_util += strategy[a] * util[a]
 
-    pos_d = _discount(t, alpha)
-    neg_d = _discount(t, beta)
-    strat_d = _discount(t, gamma)
-
-    for a in node_info.legal_actions:
-        inst = util[a] - node_util
-        wt = p1 if player == 0 else p0
-        weighted = wt * inst
-        prev = node.regret_sum[a]
-        discounted = pos_d * max(prev, 0.0) + neg_d * min(prev, 0.0)
-        node.regret_sum[a] = max(0.0, discounted + weighted)
-        node.last_inst_regret[a] = weighted
-        node.strategy_sum[a] = (strat_d * node.strategy_sum[a]
-                                + reach_prob * strategy[a])
+    if update_player == -1 or update_player == player:
+        pos_d = _discount(t, alpha)
+        neg_d = _discount(t, beta)
+        strat_d = _discount(t, gamma)
+        for a in node_info.legal_actions:
+            inst = util[a] - node_util
+            wt = p1 if player == 0 else p0
+            weighted = wt * inst
+            prev = node.regret_sum[a]
+            discounted = pos_d * max(prev, 0.0) + neg_d * min(prev, 0.0)
+            node.regret_sum[a] = max(0.0, discounted + weighted)
+            node.last_inst_regret[a] = weighted
+            node.strategy_sum[a] = (strat_d * node.strategy_sum[a]
+                                    + reach_prob * strategy[a])
 
     return node_util
