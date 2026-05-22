@@ -77,7 +77,13 @@ class Trainer:
             raise ValueError(f"Unknown game: {game.name}")
 
     def train(self, iterations, batch=False):
-        # ---- Deep CFR uses a completely different training loop ----
+        # ---- Deep CFR (paper spec) —— external sampling + from-scratch ----
+        if self.algorithm == 'deep_cfr_paper':
+            from deep_cfr.train import train
+            train(iterations=iterations, game_name=self.game_name)
+            return
+
+        # ---- Deep CFR (original) uses a completely different training loop ----
         if self.algorithm == 'deep_cfr':
             from neural.train import train_deep_cfr
             dcfr_iters = 1000000 if iterations == 10000000 else iterations
@@ -222,8 +228,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--algo", "-a",
         type=str, default="cfr",
-        choices=["cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr"],
-        help="Algorithm: 'cfr', 'cfr_plus', 'dcfr', 'pdcfr_plus', or 'deep_cfr'"
+        choices=["cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr", "deep_cfr_paper"],
+        help="Algorithm: 'cfr', 'cfr_plus', 'dcfr', 'pdcfr_plus', 'deep_cfr', or 'deep_cfr_paper'"
     )
     parser.add_argument(
         "--iterations", "-i",
