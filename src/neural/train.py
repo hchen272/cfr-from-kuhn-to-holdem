@@ -22,15 +22,19 @@ from neural.deep_cfr import DeepCFR
 from utils import save_strategy_txt, save_model
 
 # ──────────────────────────────────────────────────────────────────────
-#  Hyper-parameters (sensible defaults for Kuhn / Leduc)
+#  Hyper-parameters
 # ──────────────────────────────────────────────────────────────────────
-HIDDEN_DIM = 32
 BATCH_SIZE = 512
 TRAIN_FREQ = 20                   # train the network every K episodes
 TRAIN_STEPS = 10                  # gradient steps per training event
 LEARNING_RATE = 0.001
 WARM_START_RATIO = 10             # 1/WARM_START_RATIO of buffer filled with random play
 PROGRESS_EVERY = 5000             # print a one-line progress every N episodes
+
+
+def _hidden_dim(game_name: str) -> int:
+    """Game-adaptive hidden-layer size."""
+    return {'kuhn': 32, 'leduc': 256}.get(game_name, 64)
 
 
 def _buffer_capacity(iterations):
@@ -42,7 +46,8 @@ def _buffer_capacity(iterations):
     return max(50_000, min(int(iterations * 0.2), 500_000))
 
 
-def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
+def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn",
+                   alternate=False):
     """Run the full Deep CFR training loop.
 
     Parameters
@@ -52,6 +57,8 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
         Algorithm name used in log/model filenames.
     game_name : str
         Game name used in file naming (e.g. 'kuhn', 'leduc').
+    alternate : bool
+        If True, swap the updating player every episode (recommended).
 
     Returns
     -------
@@ -60,6 +67,8 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
         strategies.
     """
     game = get_game(game_name)
+    print(f"Game: {game.name}  |  hidden_dim: {_hidden_dim(game_name)}  "
+          f"|  alternate: {alternate}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
@@ -70,7 +79,7 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
     # --- initialise components ---------------------------------------
     capacity = _buffer_capacity(iterations)
     regret_net = RegretNet(input_dim=game.feature_dim,
-                           hidden_dim=HIDDEN_DIM,
+                           hidden_dim=_hidden_dim(game_name),
                            output_dim=game.num_actions).to(device)
     optimizer = optim.Adam(regret_net.parameters(), lr=LEARNING_RATE)
     loss_fn = nn.MSELoss()
@@ -95,7 +104,9 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn"):
     for episode in range(1, iterations + 1):
         cards = game.deal_cards()
 
-        episode_util = agent.traverse(cards, "", 1.0, 1.0)
+        up = episode % 2 if alternate else -1   # -1 = both
+        episode_util = agent.traverse(cards, "", 1.0, 1.0,
+                                      update_player=up)
         total_util += episode_util
 
         # --- train network every TRAIN_FREQ episodes -----------------

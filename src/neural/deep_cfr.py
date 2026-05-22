@@ -56,8 +56,15 @@ class DeepCFR:
     # ------------------------------------------------------------------
     # Traversal
     # ------------------------------------------------------------------
-    def traverse(self, cards, history, p0, p1):
+    def traverse(self, cards, history, p0, p1, update_player=-1):
         """One recursive CFR traversal backed by the neural network.
+
+        Parameters
+        ----------
+        update_player : int
+            -1 = accumulate strategy for both players.
+             0 = only accumulate P0's strategy / store P0's regrets.
+             1 = only accumulate P1's strategy / store P1's regrets.
 
         Returns the node utility (from player-0's perspective).
         """
@@ -100,10 +107,12 @@ class DeepCFR:
                     strategy[a] = 1.0 / n_legal
 
         # ---- accumulate average strategy ----------------------------
-        reach_prob = p0 if player == 0 else p1
-        if infoset not in self.strategy_sum:
-            self.strategy_sum[infoset] = np.zeros(game.num_actions, dtype=np.float64)
-        self.strategy_sum[infoset] += reach_prob * strategy
+        do_accum = (update_player == -1 or update_player == player)
+        if do_accum:
+            reach_prob = p0 if player == 0 else p1
+            if infoset not in self.strategy_sum:
+                self.strategy_sum[infoset] = np.zeros(game.num_actions, dtype=np.float64)
+            self.strategy_sum[infoset] += reach_prob * strategy
 
         # ---- traverse children --------------------------------------
         na = game.num_actions
@@ -116,20 +125,23 @@ class DeepCFR:
             next_hist = game.build_next_history(history, game.ACTIONS[a])
             if player == 0:
                 util[a] = -self.traverse(cards, next_hist,
-                                         p0 * strategy[a], p1)
+                                         p0 * strategy[a], p1,
+                                         update_player=update_player)
             else:
                 util[a] = -self.traverse(cards, next_hist,
-                                         p0, p1 * strategy[a])
+                                         p0, p1 * strategy[a],
+                                         update_player=update_player)
             node_util += strategy[a] * util[a]
 
         # ---- store instant regrets in buffer ------------------------
-        regret_vec = np.zeros(na, dtype=np.float64)
-        for a in range(na):
-            if game.ACTIONS[a] not in legal_set:
-                continue
-            inst = util[a] - node_util
-            regret_vec[a] = (p1 if player == 0 else p0) * inst
-        self.buffer.add(features, regret_vec)
+        if do_accum:
+            regret_vec = np.zeros(na, dtype=np.float64)
+            for a in range(na):
+                if game.ACTIONS[a] not in legal_set:
+                    continue
+                inst = util[a] - node_util
+                regret_vec[a] = (p1 if player == 0 else p0) * inst
+            self.buffer.add(features, regret_vec)
 
         return node_util
 

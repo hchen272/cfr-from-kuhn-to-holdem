@@ -61,9 +61,7 @@ myCFR/
 │   ├── check_exploit.py         # Brute-force exploitability checker
 │   └── visualize.py             # Auto-scan logs → plots
 │
-├── ancestor.md                  # Project state summary (for AI onboarding)
 ├── README.md
-├── roadmap.md                   # Leduc Hold'em expansion roadmap
 └── requirements.txt
 ```
 

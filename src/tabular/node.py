@@ -25,8 +25,13 @@ class Node:
         # cumulative strategy
         self.strategy_sum = np.zeros(num_actions)
 
+        # --- C2 batch-delayed accumulation fields ---
+        self._batch_delta = np.zeros(num_actions)   # Σ w_deal * wt * regret
+        self._batch_reach = 0.0                       # Σ w_deal * reach_prob
+        self._batch_weight = 0.0                      # Σ w_deal
+
     def get_strategy(self, realization_weight, strategy_discount=1.0,
-                     linear_weight=1.0):
+                     linear_weight=1.0, accumulate=True):
         """
         Compute current strategy using regret matching.
 
@@ -42,6 +47,10 @@ class Node:
                 iteration weight for linear averaging (CFR+).
                 ``strategy_sum += linear_weight * reach_prob * strategy``.
                 Defaults to 1.0 (uniform averaging) for standard CFR.
+
+            accumulate (bool):
+                If True (default), accumulate into ``strategy_sum``.
+                Set False during batch traversal (C2 delayed-accumulation).
 
         Returns:
             np.array:
@@ -66,14 +75,22 @@ class Node:
                 # uniform random strategy
                 self.strategy[a] = 1.0 / self.num_actions
 
-            # accumulate average strategy (with optional DCFR discount
-            # and CFR+ linear weight)
-            self.strategy_sum[a] = (
-                strategy_discount * self.strategy_sum[a]
-                + (linear_weight * realization_weight) * self.strategy[a]
-            )
+        # accumulate average strategy (with optional DCFR discount
+        # and CFR+ linear weight)
+        if accumulate:
+            for a in range(self.num_actions):
+                self.strategy_sum[a] = (
+                    strategy_discount * self.strategy_sum[a]
+                    + (linear_weight * realization_weight) * self.strategy[a]
+                )
 
         return self.strategy
+
+    def reset_batch(self):
+        """Zero out batch-delayed accumulators (C2)."""
+        self._batch_delta.fill(0.0)
+        self._batch_reach = 0.0
+        self._batch_weight = 0.0
 
     def get_average_strategy(self):
         """

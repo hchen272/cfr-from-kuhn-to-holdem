@@ -1,5 +1,6 @@
 import argparse
 import random
+import numpy as np
 from game_selector import get_game
 from utils import save_strategy_txt, save_model
 
@@ -26,24 +27,51 @@ class Trainer:
         return out
 
     def _batch_deals(self):
-        """Return list of (cards, comm_rank) tuples for all possible deals."""
+        """Return list of (cards, comm_rank, weight) covering all instances.
+
+        Weights are proportional to the number of card-instance deals sharing
+        the same rank pattern, so that regret deltas can be averaged in an
+        instance-weighted sense.
+
+        Leduc (6-card deck: J₁J₂ Q₁Q₂ K₁K₂ → 120 ordered deals):
+
+            P0≠P1, comm≠P0≠P1  (e.g. J-Q-K) : 6 patterns × 8 = 48  → w=8
+            P0≠P1, comm=P0     (e.g. J-Q-J) : 6 patterns × 4 = 24  → w=4
+            P0≠P1, comm=P1     (e.g. J-Q-Q) : 6 patterns × 4 = 24  → w=4
+            P0=P1              (e.g. J-J-Q) : 6 patterns × 4 = 24  → w=4
+                                          total = 120
+        """
         game = self.game
         if game.name == 'kuhn':
-            ranks = ['J','Q','K']
+            ranks = ['J', 'Q', 'K']
             deals = []
             for p0 in ranks:
                 for p1 in ranks:
                     if p1 != p0:
-                        deals.append(((p0, p1), ''))
+                        deals.append(((p0, p1), '', 1))
             return deals
         elif game.name == 'leduc':
-            ranks = ['J','Q','K']
+            ranks = ['J', 'Q', 'K']
             deals = []
+            # P0 ≠ P1 — 18 rank combos
             for p0 in ranks:
                 for p1 in ranks:
-                    if p1 != p0:
-                        for comm in self.tree._comm_ranks:
-                            deals.append(((p0, p1), comm))
+                    if p1 == p0:
+                        continue
+                    for comm in self.tree._comm_ranks:
+                        if comm != p0 and comm != p1:
+                            w = 8  # all-different: 2×2×2 = 8 instances
+                        else:
+                            w = 4  # comm matches P0 or P1: 2×2×1 = 4
+                        deals.append(((p0, p1), comm, w))
+            # P0 ＝ P1 — 6 rank combos (previously missing)
+            for r in ranks:
+                for comm in self.tree._comm_ranks:
+                    if comm == r:
+                        continue
+                    # 2 ways to assign suits × 4 remaining comm cards = 8,
+                    # but split across the 2 comm ranks → 4 per deal
+                    deals.append(((r, r), comm, 4))
             return deals
         else:
             raise ValueError(f"Unknown game: {game.name}")
@@ -54,7 +82,8 @@ class Trainer:
             from neural.train import train_deep_cfr
             dcfr_iters = 1000000 if iterations == 10000000 else iterations
             train_deep_cfr(iterations=dcfr_iters, log_prefix=self.algorithm,
-                           game_name=self.game_name)
+                           game_name=self.game_name,
+                           alternate=self.alternate)
             return
 
         # ---- Tabular tree-based algorithms ----
@@ -83,10 +112,16 @@ class Trainer:
         if batch:
             batch_deals = self._batch_deals()
             n_batch = len(batch_deals)
-            print(f"Batch mode: {n_batch} deal(s) per iteration ({self.game.name})")
+            total_weight = sum(w for _, _, w in batch_deals)
+            is_weighted = self.algorithm == 'cfr_plus'  # C2 enabled for CFR+
+            print(f"Batch mode: {n_batch} rank combos ({total_weight} instances)"
+                  f" per iteration ({self.game.name})"
+                  f"{' [C2 weighted]' if is_weighted else ''}")
         else:
             batch_deals = None
             n_batch = 1
+            total_weight = 1
+            is_weighted = False
 
         # Clean logs (write header)
         conv = self._converted_node_map(node_map)
@@ -111,11 +146,44 @@ class Trainer:
             iter_util = 0.0
 
             if batch:
-                for cards, comm_rank in batch_deals:
+                # ── C2 batch traversal: accumulate, don't apply ──
+                if is_weighted:
+                    # Reset accumulators
+                    for node in node_map.values():
+                        node.reset_batch()
+
+                for cards, comm_rank, *rest in batch_deals:
                     game._comm = (comm_rank, 0) if comm_rank else game._comm
-                    iter_util += cfr_fn(self.tree, cards, comm_rank,
-                                        root_hid, 1.0, 1.0, node_map, **extra)
-                iter_util /= n_batch  # average over all deals
+                    dw = rest[0] if rest else 1.0
+                    if is_weighted:
+                        iter_util += dw * cfr_fn(
+                            self.tree, cards, comm_rank,
+                            root_hid, 1.0, 1.0, node_map,
+                            deal_weight=dw, **extra)
+                    else:
+                        iter_util += cfr_fn(
+                            self.tree, cards, comm_rank,
+                            root_hid, 1.0, 1.0, node_map, **extra)
+
+                if is_weighted:
+                    # ── C2 post-batch: accumulate σ_t (before regret update),
+                    #     then apply averaged regret deltas ──
+                    lw = float(extra.get('iter_cnt_ref', [1])[0])
+                    for node in node_map.values():
+                        if node._batch_weight > 0:
+                            avg_reach = (node._batch_reach
+                                         / node._batch_weight)
+                            # accumulate σ_t first (strategy from *current* regrets)
+                            node.get_strategy(avg_reach,
+                                              linear_weight=lw,
+                                              accumulate=True)
+                            # then update regrets → σ_{t+1}
+                            avg_delta = node._batch_delta / node._batch_weight
+                            node.regret_sum = np.maximum(
+                                0.0, node.regret_sum + avg_delta)
+                    iter_util /= total_weight
+                else:
+                    iter_util /= n_batch
             else:
                 cards = game.deal_cards()
                 comm_rank = ""

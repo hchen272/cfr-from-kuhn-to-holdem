@@ -80,7 +80,7 @@ def cfr_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
 # ════════════════════════════════════════════════════════════════════
 
 def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
-                  iter_cnt_ref=None, update_player=-1):
+                  iter_cnt_ref=None, update_player=-1, deal_weight=None):
     """CFR+ backed by a pre-computed game tree.
 
     Uses *linear averaging* (CFR+ original paper: Tammelin 2014):
@@ -95,6 +95,13 @@ def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
       -1 = both (default).
        0 = only P0.
        1 = only P1.
+
+    ``deal_weight`` (C2 batch mode):
+      When provided, regret deltas are accumulated into
+      ``node._batch_delta`` instead of being applied immediately.
+      Strategy is computed via ``get_strategy(..., accumulate=False)``
+      during traversal; the caller must apply the averaged deltas and
+      accumulate ``strategy_sum`` after the batch completes.
     """
     node_info = tree.nodes[hid]
     player = node_info.player
@@ -113,7 +120,13 @@ def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
 
     # linear weight: later iterations → larger contribution
     lw = float(iter_cnt_ref[0]) if iter_cnt_ref is not None else 1.0
-    strategy = node.get_strategy(reach_prob, linear_weight=lw)
+
+    # C2 batch mode: strategy without accumulation
+    if deal_weight is not None:
+        strategy = node.get_strategy(reach_prob, linear_weight=lw,
+                                     accumulate=False)
+    else:
+        strategy = node.get_strategy(reach_prob, linear_weight=lw)
 
     na = tree.num_actions
     util = np.zeros(na)
@@ -127,19 +140,32 @@ def cfr_plus_tree(tree, cards, comm_rank, hid, p0, p1, node_map,
             util[a] = -cfr_plus_tree(tree, cards, comm_rank, child_hid,
                                      p0 * strategy[a], p1, node_map,
                                      iter_cnt_ref=iter_cnt_ref,
-                                     update_player=update_player)
+                                     update_player=update_player,
+                                     deal_weight=deal_weight)
         else:
             util[a] = -cfr_plus_tree(tree, cards, comm_rank, child_hid,
                                      p0, p1 * strategy[a], node_map,
                                      iter_cnt_ref=iter_cnt_ref,
-                                     update_player=update_player)
+                                     update_player=update_player,
+                                     deal_weight=deal_weight)
         node_util += strategy[a] * util[a]
 
     if update_player == -1 or update_player == player:
         for a in node_info.legal_actions:
             regret = util[a] - node_util
             wt = p1 if player == 0 else p0
-            node.regret_sum[a] = max(0.0, node.regret_sum[a] + wt * regret)
+            if deal_weight is not None:
+                # C2 batch mode: accumulate weighted deltas
+                node._batch_delta[a] += deal_weight * wt * regret
+            else:
+                # Standard: apply immediately
+                node.regret_sum[a] = max(0.0, node.regret_sum[a] + wt * regret)
+
+    # C2: reach / weight tracked for *all* nodes (strategy_sum
+    # accumulation operates for both players regardless of update_player).
+    if deal_weight is not None:
+        node._batch_reach += deal_weight * reach_prob
+        node._batch_weight += deal_weight
 
     return node_util
 
