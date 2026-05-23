@@ -157,7 +157,7 @@ def train(iterations, game_name="kuhn"):
     traverser = Traverser(regret_net, regret_buffer, game, device=device)
 
     # ── warm-start ────────────────────────────────────────────────
-    warm_n = max(1, int(buf_capacity * WARM_START_FRAC))
+    warm_n = min(10_000, max(1, int(buf_capacity * WARM_START_FRAC)))
     print(f"Warm-start: filling buffer with {warm_n:,} random traversals …")
     _warm_start_buffer(traverser, game, regret_buffer, warm_n)
     print(f"  buffer size after warm-start: {len(regret_buffer):,}")
