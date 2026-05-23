@@ -27,9 +27,9 @@ from utils import save_strategy_txt, save_model
 #  Hyper-parameters
 # ══════════════════════════════════════════════════════════════════════
 
-TRAVERSALS_PER_ITER = 50           # K: external-sampling traversals / CFR iter
+TRAVERSALS_PER_ITER = 300           # K: external-sampling traversals / CFR iter
 BATCH_SIZE          = 2048         # mini-batch size
-TRAIN_STEPS         = 200          # gradient steps per from-scratch retraining
+TRAIN_STEPS         = 800          # gradient steps per from-scratch retraining
 LEARNING_RATE       = 0.001
 BUFFER_FACTOR       = 0.3          # capacity = max(50k, floor(iters * factor))
 MAX_BUFFER          = 500_000
