@@ -31,8 +31,8 @@ TRAVERSALS_PER_ITER = 300           # K: external-sampling traversals / CFR iter
 BATCH_SIZE          = 2048         # mini-batch size
 TRAIN_STEPS         = 800          # gradient steps per from-scratch retraining
 LEARNING_RATE       = 0.001
-BUFFER_FACTOR       = 0.3          # capacity = max(50k, floor(iters * factor))
-MAX_BUFFER          = 500_000
+BUFFER_DIVISOR      = 3            # capacity = traversals * iters // divisor
+MAX_BUFFER          = 2_000_000    # hard ceiling
 WARM_START_FRAC     = 0.1          # fill buffer with this fraction before training
 SNAPSHOT_EVERY      = 100          # CFR iters between snapshot writes
 PROGRESS_EVERY      = 50           # CFR iters between stdout progress lines
@@ -129,11 +129,23 @@ def train(iterations, game_name="kuhn"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     hdim  = _hidden_dim(game_name)
-    print(f"Deep CFR (paper)  |  game: {game.name}  |  "
-          f"hidden_dim: {hdim}  |  iters: {iterations}  |  device: {device}")
 
-    # ── initialise ────────────────────────────────────────────────
-    buf_capacity = max(50_000, min(int(iterations * BUFFER_FACTOR), MAX_BUFFER))
+    # ── clean stale log for this (game, iters) pair ──────────────────
+    import os
+    log_name = f'{game_name}_strategy_deep_cfr_paper_{iterations:.0e}.txt'
+    log_path = os.path.join('logs', log_name)
+    if os.path.exists(log_path):
+        os.remove(log_path)
+
+    # ── buffer capacity proportional to total traversals ────────────
+    buf_capacity = min(TRAVERSALS_PER_ITER * iterations // BUFFER_DIVISOR,
+                       MAX_BUFFER)
+    buf_capacity = max(50_000, buf_capacity)
+
+    print(f"Deep CFR (paper)  |  game: {game.name}  |  "
+          f"hidden_dim: {hdim}  |  iters: {iterations}  |  device: {device}  "
+          f"|  buffer: {buf_capacity:,}")
+
     regret_buffer = ReservoirBuffer(capacity=buf_capacity)
 
     regret_net = RegretNet(input_dim=game.feature_dim,
