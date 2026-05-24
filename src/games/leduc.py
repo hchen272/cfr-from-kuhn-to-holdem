@@ -53,7 +53,7 @@ BET_SIZE_R1 = 2
 BET_SIZE_R2 = 4
 BB = 2                     # big blind
 SB = 1                     # small blind
-MAX_RAISES = 2
+MAX_RAISES = 3             # 1 bet + 2 raises per round (standard Leduc)
 
 _SEP = "|"  # round separator (1 char for the sep + 1 char for community rank = 2 chars total, preserving parity)
 
