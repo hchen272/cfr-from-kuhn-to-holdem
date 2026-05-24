@@ -129,6 +129,11 @@ class Trainer:
             total_weight = 1
             is_weighted = False
 
+        # ── config summary ──────────────────────────────────────────
+        print(f" game: {self.game.name}  |  algo: {self.algorithm}  "
+              f"|  iters: {iterations:,}  |  alternate: {self.alternate}  "
+              f"|  batch: {batch}")
+
         # Clean logs (write header)
         conv = self._converted_node_map(node_map)
         save_strategy_txt(conv, 0, 0, iterations, self.algorithm,
@@ -192,13 +197,25 @@ class Trainer:
                     iter_util /= n_batch
             else:
                 cards = game.deal_cards()
-                comm_rank = ""
                 if self.tree._comm_ranks:
-                    comm = getattr(game, '_comm', None)
-                    if comm is not None:
-                        comm_rank = comm[0] if isinstance(comm, tuple) else comm
-                iter_util = cfr_fn(self.tree, cards, comm_rank,
-                                   root_hid, 1.0, 1.0, node_map, **extra)
+                    # ── enumerate all community cards with correct probability ──
+                    p0r, p1r = cards
+                    remain = {'J': 2, 'Q': 2, 'K': 2}
+                    remain[p0r] -= 1
+                    remain[p1r] -= 1
+                    total_rem = sum(remain.values())
+                    iter_util = 0.0
+                    for cr in self.tree._comm_ranks:
+                        if remain[cr] == 0:
+                            continue
+                        prob = remain[cr] / total_rem
+                        game._comm = (cr, 0)
+                        iter_util += prob * cfr_fn(
+                            self.tree, cards, cr,
+                            root_hid, prob, prob, node_map, **extra)
+                else:
+                    iter_util = cfr_fn(self.tree, cards, "",
+                                       root_hid, 1.0, 1.0, node_map, **extra)
 
             total_util += iter_util
 
