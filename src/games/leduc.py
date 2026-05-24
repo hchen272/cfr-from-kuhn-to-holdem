@@ -1,14 +1,14 @@
 """
-Leduc Hold'em — a medium-sized poker game with 2 betting rounds.
+Leduc Hold'em -- a medium-sized poker game with 2 betting rounds.
 
 Rules
 -----
 - Deck: 6 cards (K♠ K♥ Q♠ Q♥ J♠ J♥) — 2 suits, 3 ranks.
-- Each player antes 1 chip and receives one private card.
+- Blinds: P0 = SB (1 chip), P1 = BB (2 chips).
 - One community card is dealt after the first betting round.
 - Two betting rounds (pre-flop / flop), fixed limit:
-  - Round 1 bet size: 2 chips.
-  - Round 2 bet size: 4 chips.
+  - Round 1 bet size: 2 chips (= BB).
+  - Round 2 bet size: 4 chips (= 2×BB).
   - Maximum 2 raises per round.
 - Hand evaluation:
     1. Pair (hole matches community) > high card.
@@ -31,6 +31,9 @@ Cards tuple ``(p0_rank, p1_rank)`` (same shape as Kuhn Poker).
 Infoset key (used by node map):
     ``player_rank + history``
     e.g. ``"Jcc"`` (round 1) or ``"Jcc|Kc"`` (round 2).
+
+Payoffs are normalised by BB (= 2 chips), matching rlcard / standard
+Leduc convention.  Nash value ≈ −0.0855 for P0.
 """
 
 import random
@@ -48,7 +51,8 @@ FOLD = "f"
 
 BET_SIZE_R1 = 2
 BET_SIZE_R2 = 4
-ANTE = 1
+BB = 2                     # big blind
+SB = 1                     # small blind
 MAX_RAISES = 2
 
 _SEP = "|"  # round separator (1 char for the sep + 1 char for community rank = 2 chars total, preserving parity)
@@ -145,43 +149,31 @@ class LeducGame(Game):
         return actions.count(RAISE)
 
     def _player_investment(self, history: str, player: int) -> int:
-        """Total chips invested by ``player`` (ante + all bets/calls/raises).
+        """Total chips invested by *player* (blind + all bets).
 
-        Uses the same pending-bet-aware logic as ``_pot_size`` but tracks
-        contributions per player.
+        Uses rlcard-style raised[] tracking: CALL always matches the
+        current highest bet, not just when there is a pending raise.
         """
-        total = ANTE
+        raised = [SB, BB]          # initial blinds: P0=1, P1=2
         r1 = self._r1_actions(history)
         r2 = self._r2_actions(history)
 
-        # ---- Round 1 ----
-        pending = False
         for i, a in enumerate(r1):
+            p = i % 2
             if a == RAISE:
-                pending = True
-                if i % 2 == player:
-                    total += BET_SIZE_R1
+                raised[p] = max(raised) + BET_SIZE_R1
             elif a == CALL:
-                if pending:
-                    if i % 2 == player:
-                        total += BET_SIZE_R1
-                    pending = False
-            # FOLD: no money added
+                raised[p] = max(raised)
+            # FOLD: no change
 
-        # ---- Round 2 ----
-        pending = False
         for i, a in enumerate(r2):
+            p = i % 2
             if a == RAISE:
-                pending = True
-                if i % 2 == player:
-                    total += BET_SIZE_R2
+                raised[p] = max(raised) + BET_SIZE_R2
             elif a == CALL:
-                if pending:
-                    if i % 2 == player:
-                        total += BET_SIZE_R2
-                    pending = False
+                raised[p] = max(raised)
 
-        return total
+        return raised[player]
 
     def build_next_history(self, history: str, action: str) -> str:
         """Extend history, automatically inserting community card
@@ -202,38 +194,23 @@ class LeducGame(Game):
         return history + action
 
     def _pot_size(self, history: str) -> int:
-        """Total pot size (antes + all bets/calls/raises).
-
-        Correctly distinguishes checks (cost 0) from calls (cost bet size).
-        """
+        """Total pot = SB + BB + all bets."""
+        raised = [SB, BB]
         r1 = self._r1_actions(history)
         r2 = self._r2_actions(history)
-        pot = 2 * ANTE
-
-        # ---- Round 1 ----
-        has_pending = False
-        for a in r1:
+        for i, a in enumerate(r1):
+            p = i % 2
             if a == RAISE:
-                pot += BET_SIZE_R1
-                has_pending = True
+                raised[p] = max(raised) + BET_SIZE_R1
             elif a == CALL:
-                if has_pending:
-                    pot += BET_SIZE_R1
-                    has_pending = False
-            # FOLD: no money added
-
-        # ---- Round 2 ----
-        has_pending = False
-        for a in r2:
+                raised[p] = max(raised)
+        for i, a in enumerate(r2):
+            p = i % 2
             if a == RAISE:
-                pot += BET_SIZE_R2
-                has_pending = True
+                raised[p] = max(raised) + BET_SIZE_R2
             elif a == CALL:
-                if has_pending:
-                    pot += BET_SIZE_R2
-                    has_pending = False
-
-        return pot
+                raised[p] = max(raised)
+        return sum(raised)
 
     # ── State queries ───────────────────────────────────────────────────
 
@@ -311,52 +288,42 @@ class LeducGame(Game):
         p0_rank, p1_rank = cards
         com_rank = self._community_rank(history)
         if not com_rank:
-            # Fallback: use internal stored community card
             com_rank = _rank_of(self._comm)
         r1 = self._r1_actions(history)
         r2 = self._r2_actions(history)
 
-        # Compute each player's total investment (ante + all bets)
         p0_inv = self._player_investment(history, 0)
         p1_inv = self._player_investment(history, 1)
 
-        # ---- Fold: net = what the folding player loses ----
+        # ---- Fold ----
         if FOLD in r1:
             fold_idx = r1.index(FOLD)
-            # P0 at even indices in round 1, P1 at odd indices
-            if fold_idx % 2 == 0:      # P0 folded
-                return float(-p0_inv)
-            else:                       # P1 folded
-                return float(p1_inv)
+            raw = float(-p0_inv) if fold_idx % 2 == 0 else float(p1_inv)
+            return raw / BB
 
         if FOLD in r2:
             fold_idx = len(r1) + r2.index(FOLD)
-            if fold_idx % 2 == 0:       # P0 folded
-                return float(-p0_inv)
-            else:                        # P1 folded
-                return float(p1_inv)
+            raw = float(-p0_inv) if fold_idx % 2 == 0 else float(p1_inv)
+            return raw / BB
 
-        # ---- Showdown: net = opponent's investment (win) or -own (lose) ----
+        # ---- Showdown ----
         p0_hand = self._hand_rank(p0_rank, com_rank)
         p1_hand = self._hand_rank(p1_rank, com_rank)
 
         if p0_hand > p1_hand:
-            # P0 wins: gets P1's entire investment
-            return float(p1_inv)
+            raw = float(p1_inv)
         elif p1_hand > p0_hand:
-            # P1 wins: P0 loses own investment
-            return float(-p0_inv)
+            raw = float(-p0_inv)
         else:
-            # Same hand rank → compare high card
             p0_val = self.card_rank(p0_rank)
             p1_val = self.card_rank(p1_rank)
             if p0_val > p1_val:
-                return float(p1_inv)
+                raw = float(p1_inv)
             elif p1_val > p0_val:
-                return float(-p0_inv)
+                raw = float(-p0_inv)
             else:
-                # Split pot: each gets half back; net = (P1_inv - P0_inv) / 2
-                return float(p1_inv - p0_inv) / 2.0
+                raw = float(p1_inv - p0_inv) / 2.0
+        return raw / BB
 
     # ── Feature encoding ───────────────────────────────────────────────
 
