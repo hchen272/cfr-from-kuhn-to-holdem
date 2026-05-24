@@ -10,3 +10,4 @@ references/
 last_terminal_output.txt
 analysis.md
 analysis.txt
+diagnostic.py

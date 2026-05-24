@@ -77,6 +77,34 @@ class Trainer:
             raise ValueError(f"Unknown game: {game.name}")
 
     def train(self, iterations, batch=False):
+        # ---- Double DQN ---- (episode-based RL)
+        if self.algorithm == 'ddqn':
+            from ddqn.train import train_ddqn
+            train_ddqn(iterations=iterations, game_name=self.game_name,
+                       log_prefix=self.algorithm)
+            return
+
+        # ---- DQN ---- (episode-based RL)
+        if self.algorithm == 'dqn':
+            from dqn.train import train_dqn
+            train_dqn(iterations=iterations, game_name=self.game_name,
+                      log_prefix=self.algorithm)
+            return
+
+        # ---- NFSP Dual (bilateral) ---- (episode-based RL, both players learn)
+        if self.algorithm == 'nfsp_dual':
+            from nfsp_dual.train import train_nfsp_dual
+            train_nfsp_dual(iterations=iterations, game_name=self.game_name,
+                            log_prefix=self.algorithm)
+            return
+
+        # ---- NFSP ---- (episode-based RL)
+        if self.algorithm == 'nfsp':
+            from nfsp.train import train_nfsp
+            train_nfsp(iterations=iterations, game_name=self.game_name,
+                       log_prefix=self.algorithm)
+            return
+
         # ---- Deep CFR (paper spec) —— external sampling + from-scratch ----
         if self.algorithm == 'deep_cfr_paper':
             from deep_cfr.train import train
@@ -245,8 +273,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--algo", "-a",
         type=str, default="cfr",
-        choices=["cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr", "deep_cfr_paper"],
-        help="Algorithm: 'cfr', 'cfr_plus', 'dcfr', 'pdcfr_plus', 'deep_cfr', or 'deep_cfr_paper'"
+        choices=["cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr",
+                 "deep_cfr_paper", "dqn", "ddqn", "nfsp", "nfsp_dual"],
+        help="Algorithm: cfr, cfr_plus, dcfr, pdcfr_plus, deep_cfr, deep_cfr_paper, dqn, nfsp"
     )
     parser.add_argument(
         "--iterations", "-i",
