@@ -172,9 +172,9 @@ class Trainer:
                             root_hid, 1.0, 1.0, node_map,
                             deal_weight=dw, **extra)
                     else:
-                        iter_util += cfr_fn(
+                        iter_util += dw * cfr_fn(
                             self.tree, cards, comm_rank,
-                            root_hid, 1.0, 1.0, node_map, **extra)
+                            root_hid, dw, dw, node_map, **extra)
 
                 if is_weighted:
                     # ── C2 post-batch: accumulate σ_t (before regret update),
@@ -194,7 +194,7 @@ class Trainer:
                                 0.0, node.regret_sum + avg_delta)
                     iter_util /= total_weight
                 else:
-                    iter_util /= n_batch
+                    iter_util /= total_weight
             else:
                 cards = game.deal_cards()
                 if self.tree._comm_ranks:
