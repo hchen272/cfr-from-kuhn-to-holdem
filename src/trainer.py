@@ -249,11 +249,13 @@ class Trainer:
 
             if (i + 1) % max(1, iterations // 100) == 0:
                 avg_value = round(total_util / (i + 1), 6)
+                cur_value = round(iter_util, 6)
                 pct = (i + 1) / iterations * 100
-                print(f"[{pct:5.1f}%] Iter {i+1:>12,}  |  avg game value: {avg_value:+.6f}")
+                print(f"[{pct:5.1f}%] Iter {i+1:>12,}  |  avg: {avg_value:+.6f}  cur: {cur_value:+.6f}")
                 conv = self._converted_node_map(node_map)
                 save_strategy_txt(conv, i + 1, avg_value, iterations,
-                                  self.algorithm, game_name=self.game_name)
+                                  self.algorithm, game_name=self.game_name,
+                                  iter_value=cur_value)
 
         # Final output
         print("\n=== FINAL STRATEGIES ===\n")

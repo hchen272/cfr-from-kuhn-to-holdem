@@ -1,198 +1,122 @@
-import os
-import re
-import glob
+"""Visualize strategy evolution and game value from training logs.
 
+Output goes to eval/visualizations/ (or custom --output-dir).
+Supports both "Average game value" and "Current game value" lines.
+"""
+import os, re, glob, argparse
 import matplotlib.pyplot as plt
 
-# Script lives in src/; project root is one level up
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_HERE)
+_ROOT = os.path.dirname(_HERE)
 
-LOG_DIR = os.path.join(_PROJECT_ROOT, "logs")
-VIS_DIR = os.path.join(_PROJECT_ROOT, "visualizations")
-
-# Nash equilibrium game values (player-0 perspective) by game
-_NASH_VALUES = {
-    "kuhn": (-1 / 18, f"Nash equilibrium (-1/18 ≈ {-1/18:.4f})"),
-    "leduc": (-0.085, "Nash equilibrium (≈ -0.085)"),
-    "legacy": (-1 / 18, f"Nash equilibrium (-1/18 ≈ {-1/18:.4f})"),
+_NASH = {
+    "kuhn":  (-1/18, f"Nash (-1/18 ≈ {-1/18:.4f})"),
+    "leduc": (-0.0855, "Nash (≈ -0.0855)"),
 }
 
 
-def _parse_log_filename(filepath):
-    """
-    Extract game name, algorithm name and iteration string from a log filename.
-
-    Supports naming conventions::
-
-        logs/{game_name}_strategy_{algo}_{iters}.txt
-            e.g. kuhn_strategy_dcfr_1e+07.txt
-        logs/strategy_{iters}.txt
-            e.g. strategy_1e+10.txt (legacy)
-
-    Returns:
-        tuple (game_name, algo, iters_str) or (None, None, None) if unparsable.
-    """
-    basename = os.path.basename(filepath)
-
-    # New format:  {game_name}_strategy_{algo}_{iters}.txt
-    if "_strategy_" in basename:
-        prefix, suffix = basename.split("_strategy_", 1)
-        core = suffix.removesuffix(".txt")
-        m = re.match(r"^([a-zA-Z_]+)_(\de[+-]\d+)$", core)
-        if m:
-            return prefix, m.group(1), m.group(2)
-
-    # Old format:  strategy_{iters}.txt
-    core = basename.removeprefix("strategy_").removesuffix(".txt")
-    m = re.match(r"^(\de[+-]\d+)$", core)
-    if m:
-        return "legacy", "legacy", m.group(1)
-
-    return None, None, None
-
-
-def _folder_path(game_name, algo, iters_str):
-    """Return expected visualization folder path under VIS_DIR."""
-    return os.path.join(VIS_DIR, f"{game_name}_{algo}_{iters_str}")
-
-
-def _read_log(filepath):
-    """
-    Parse a strategy log file into structured data.
-
-    Returns:
-        dict: {infoset_name: {"iters": [int, ...], "values": [float, ...]}}
-    """
-    history = {}
-    current_iter = None
-
-    with open(filepath, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-
-            if line.startswith("Iterations:"):
-                current_iter = int(line.split(":")[1].strip())
-
-            # Parse strategy lines like "J: [0.73 0.27]", skip "Average ..."
-            elif ":" in line and "[" in line and not line.startswith("Average"):
-                parts = line.split(":")
-                infoset = parts[0].strip()
-                numbers = re.findall(
-                    r"[-+]?\d*\.\d+(?:[eE][-+]?\d+)?|\d+",
-                    parts[1],
-                )
-                if len(numbers) >= 2:
-                    check_prob = float(numbers[0])  # probability of first action
-                    if infoset not in history:
-                        history[infoset] = {"iters": [], "values": []}
-                    history[infoset]["iters"].append(current_iter)
-                    history[infoset]["values"].append(check_prob)
-
-    return history
-
-
-def _read_game_values(filepath):
-    """
-    Extract the (iteration, average_game_value) progression from a log file.
-
-    Returns:
-        dict: {"iters": [int, ...], "values": [float, ...]}
-    """
-    iters = []
-    values = []
-    current_iter = None
+def parse_log(filepath):
+    """Return dicts for per-infoset history and game-value progression."""
+    infoset_data = {}
+    gv = {"iters": [], "avg": [], "cur": []}
+    cur_iter = None
 
     with open(filepath, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line.startswith("Iterations:"):
-                current_iter = int(line.split(":")[1].strip())
+                cur_iter = int(line.split(":")[1].strip())
             elif line.startswith("Average game value:"):
-                val = float(line.split(":")[1].strip())
-                if current_iter is not None:
-                    iters.append(current_iter)
-                    values.append(val)
+                gv["iters"].append(cur_iter)
+                gv["avg"].append(float(line.split(":")[1].strip()))
+            elif line.startswith("Current game value:"):
+                gv["cur"].append(float(line.split(":")[1].strip()))
+            elif ":" in line and "[" in line and not line.startswith("Average") and not line.startswith("Current"):
+                parts = line.split(":")
+                key = parts[0].strip()
+                nums = re.findall(r"[-+]?\d*\.\d+(?:[eE][-+]?\d+)?|\d+", parts[1])
+                if len(nums) >= 2:
+                    if key not in infoset_data:
+                        infoset_data[key] = {"iters": [], "vals": []}
+                    infoset_data[key]["iters"].append(cur_iter)
+                    infoset_data[key]["vals"].append(float(nums[0]))
 
-    return {"iters": iters, "values": values}
+    return infoset_data, gv
 
 
-def plot_strategy_evolution(filepath, game_name, algo, iters_str):
-    """
-    Plot strategy evolution for every infoset found in *filepath*,
-    plus the overall average game value progression.
+def plot(filepath, game_name, algo, iters_str, out_dir):
+    infoset_data, gv = parse_log(filepath)
+    os.makedirs(out_dir, exist_ok=True)
 
-    For non-Kuhn games (e.g. Leduc), only the average game value plot
-    is generated (per-infoset plots are skipped to avoid clutter).
-
-    Saves plots under::
-
-        visualizations/{game_name}_{algo}_{iters_str}/
-    """
-    history = _read_log(filepath)
-    game_values = _read_game_values(filepath)
-
-    output_dir = _folder_path(game_name, algo, iters_str)
-    os.makedirs(output_dir, exist_ok=True)
-
-    # ---- per-infoset strategy plots (Kuhn only) -----------------------
+    # ── per-infoset strategy plots (Kuhn only) ──
     if game_name == "kuhn":
-        for infoset, data in history.items():
+        for key, d in infoset_data.items():
             plt.figure(figsize=(8, 5))
-            plt.plot(data["iters"], data["values"])
-            plt.xlabel("Iterations")
-            plt.ylabel("Check / Pass Probability")
-            plt.title(f"Strategy Evolution – {infoset}")
-            plt.grid(True)
-
-            out_path = os.path.join(output_dir, f"{infoset}.png")
-            plt.savefig(out_path, dpi=300, bbox_inches="tight")
+            plt.plot(d["iters"], d["vals"])
+            plt.xlabel("Iterations"); plt.ylabel("Check/Pass prob")
+            plt.title(f"Strategy – {key}"); plt.grid(True)
+            plt.savefig(os.path.join(out_dir, f"{key}.png"), dpi=300, bbox_inches="tight")
             plt.close()
-            print(f"  Saved: {out_path}")
     else:
-        n_skip = len(history)
-        if n_skip > 0:
-            print(f"  [SKIP] {n_skip} per-infoset plots (game='{game_name}' has too many infosets)")
+        if infoset_data:
+            print(f"  [skip] {len(infoset_data)} infoset plots (too many for {game_name})")
 
-    # ---- average game value plot ------------------------------------
-    if game_values["iters"]:
-        nash_val, nash_label = _NASH_VALUES.get(game_name, (None, None))
+    # ── game value plot (avg + current dual lines) ──
+    if gv["iters"]:
+        plt.figure(figsize=(10, 5))
+        plt.plot(gv["iters"], gv["avg"], label="Average (cumulative)", color="steelblue", linewidth=1)
 
-        plt.figure(figsize=(8, 5))
-        plt.plot(game_values["iters"], game_values["values"],
-                 label="Average game value")
-        if nash_val is not None:
-            plt.axhline(y=nash_val, color="r", linestyle="--", linewidth=1,
-                        label=nash_label)
-        plt.xlabel("Iterations")
-        plt.ylabel("Average Game Value (player 0)")
-        plt.title(f"Average Game Value – {game_name}_{algo}_{iters_str}")
-        plt.legend()
-        plt.grid(True)
+        # Align current-values to match iterations (possibly shorter)
+        if gv["cur"]:
+            cur_iters = gv["iters"][-len(gv["cur"]):] if len(gv["cur"]) <= len(gv["iters"]) else gv["iters"]
+            cur_vals = gv["cur"]
+            plt.plot(cur_iters[-len(cur_vals):], cur_vals,
+                     label="Current (per snapshot)", color="darkorange", linewidth=1, alpha=0.8)
 
-        out_path = os.path.join(output_dir, "game_value.png")
-        plt.savefig(out_path, dpi=300, bbox_inches="tight")
+        nv, nl = _NASH.get(game_name, (None, None))
+        if nv is not None:
+            plt.axhline(y=nv, color="r", linestyle="--", linewidth=1, label=nl)
+        plt.xlabel("Iterations"); plt.ylabel("Game Value (P0)")
+        plt.title(f"Game Value – {game_name}_{algo}_{iters_str}")
+        plt.legend(); plt.grid(True)
+        plt.savefig(os.path.join(out_dir, "game_value.png"), dpi=300, bbox_inches="tight")
         plt.close()
-        print(f"  Saved: {out_path}")
+        print(f"  saved: {out_dir}/game_value.png")
     else:
-        print(f"  [WARN] No game-value data found in {filepath}")
+        print(f"  [warn] no game-value data")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--log-dir", default=os.path.join(_ROOT, "logs"))
+    parser.add_argument("--output-dir", default=os.path.join(_ROOT, "eval", "visualizations"))
+    parser.add_argument("log_pattern", nargs="?", default="*_strategy_*.txt",
+                        help="glob relative to log-dir")
+    args = parser.parse_args()
+
+    files = sorted(glob.glob(os.path.join(args.log_dir, args.log_pattern)))
+    if not files:
+        print(f"No logs matching {args.log_pattern} in {args.log_dir}")
+        return
+
+    for fp in files:
+        bn = os.path.basename(fp)
+        if "nfsp_dual_pair" in bn:
+            continue
+        game, algo, iters = None, None, None
+        if "_strategy_" in bn:
+            pref, suff = bn.split("_strategy_", 1)
+            core = suff.removesuffix(".txt")
+            m = re.match(r"^([a-zA-Z_]+)_(\de[+-]\d+)$", core)
+            if m:
+                game, algo, iters = pref, m.group(1), m.group(2)
+        if algo is None:
+            print(f"[skip] {bn}")
+            continue
+        out_sub = os.path.join(args.output_dir, f"{game}_{algo}_{iters}")
+        print(f"[plot] {game}_{algo}_{iters}")
+        plot(fp, game, algo, iters, out_sub)
 
 
 if __name__ == "__main__":
-    log_files = sorted(glob.glob(os.path.join(LOG_DIR, "*_strategy_*.txt")))
-
-    if not log_files:
-        print(f"No log files found in {LOG_DIR}/")
-        exit(0)
-
-    for log_file in log_files:
-        game_name, algo, iters_str = _parse_log_filename(log_file)
-
-        if algo is None:
-            print(f"[SKIP]  Unrecognised filename: {os.path.basename(log_file)}")
-            continue
-
-        print(f"[WORK]  {game_name}_{algo}_{iters_str}  ← {os.path.basename(log_file)}")
-        plot_strategy_evolution(log_file, game_name, algo, iters_str)
-
-    print("\nDone.")
+    main()

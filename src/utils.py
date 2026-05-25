@@ -40,64 +40,29 @@ def save_strategy_txt(
     avg_value,
     iterations,
     algorithm,
-    game_name="kuhn"
+    game_name="kuhn",
+    iter_value=None,
 ):
     """
     Save strategy snapshots.
     """
-
     log_dir = "logs"
-
     os.makedirs(log_dir, exist_ok=True)
-
-    filename = (
-        f"{game_name}_strategy_{algorithm}_{iterations:.0e}.txt"
-    )
-
-    filepath = os.path.join(
-        log_dir,
-        filename
-    )
-
-    # overwrite at beginning
-    # append afterwards
+    filename = f"{game_name}_strategy_{algorithm}_{iterations:.0e}.txt"
+    filepath = os.path.join(log_dir, filename)
     mode = "w" if iter_now == 0 else "a"
 
-    with open(
-        filepath,
-        mode,
-        encoding="utf-8"
-    ) as f:
-
-        # write header once
+    with open(filepath, mode, encoding="utf-8") as f:
         if iter_now == 0:
-
-            f.write(
-                "=== CFR STRATEGY SNAPSHOT ===\n\n"
-            )
-
+            f.write("=== CFR STRATEGY SNAPSHOT ===\n\n")
             return
 
-        # snapshot section
         f.write("=" * 50 + "\n\n")
-
-        f.write(
-            f"Iterations: {iter_now}\n"
-        )
-
+        f.write(f"Iterations: {iter_now}\n")
         for infoset in sorted(node_map):
-
-            avg_strategy = (
-                node_map[infoset]
-                .get_average_strategy()
-            )
-
-            f.write(
-                f"{infoset}: "
-                f"{avg_strategy}\n"
-            )
-
-        f.write(
-            f"Average game value: "
-            f"{avg_value:.4f}\n\n"
-        )
+            avg_strategy = node_map[infoset].get_average_strategy()
+            f.write(f"{infoset}: {avg_strategy}\n")
+        f.write(f"Average game value: {avg_value:.6f}\n")
+        if iter_value is not None:
+            f.write(f"Current game value: {iter_value:.6f}\n")
+        f.write("\n")
