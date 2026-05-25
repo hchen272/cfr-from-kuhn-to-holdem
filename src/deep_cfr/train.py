@@ -167,6 +167,7 @@ def train(iterations, game_name="kuhn"):
     util_count  = 0
     best_dist = float("inf")
     best_strategy_sum = None
+    best_cur_val = None
     nash = getattr(game, 'nash_value', None)
 
     for t in range(1, iterations + 1):
@@ -203,15 +204,16 @@ def train(iterations, game_name="kuhn"):
             print(f"  iter {t:>6,}  |  avg value: {avg_val:+.4f}  "
                   f"|  buffer: {len(regret_buffer):,} ({buf_pct:.0f}%)")
 
-            # checkpoint: best Nash-distance strategy
-            dist = abs(avg_val - nash) if nash is not None else float("inf")
-            if dist < best_dist:
-                best_dist = dist
+            # checkpoint: best Nash-distance strategy (using current value)
+            cur_d = abs(iter_util - nash) if nash is not None else float("inf")
+            if cur_d < best_dist:
+                best_dist = cur_d
+                best_cur_val = iter_util
                 best_strategy_sum = {
                     k: v.copy()
                     for k, v in traverser.strategy_sum.items()
                 }
-                print(f"           [new best]  dist to Nash: {dist:.4f}")
+                print(f"           [new best]  cur={iter_util:+.4f}  dist: {cur_d:.4f}")
 
         # ── snapshot ─────────────────────────────────────────
         if t % SNAPSHOT_EVERY == 0 or t == iterations:
@@ -222,8 +224,8 @@ def train(iterations, game_name="kuhn"):
     # ── restore best checkpoint ──────────────────────────────────
     if best_strategy_sum is not None:
         traverser.strategy_sum = best_strategy_sum
-        print(f"\n[CHECKPOINT] Restored best strategy "
-              f"(dist to Nash = {best_dist:.4f})")
+        print(f"\n[CHECKPOINT] Restored best "
+              f"cur={best_cur_val:+.4f} (dist={best_dist:.4f})")
 
     # ── final output ─────────────────────────────────────────────
     print(f"\n=== FINAL STRATEGIES ({game.name}) ===\n")
@@ -236,3 +238,8 @@ def train(iterations, game_name="kuhn"):
     # save model (strategy_sum dict)
     save_model(traverser.strategy_sum, iterations, "deep_cfr_paper",
                game_name=game_name)
+
+    if best_strategy_sum is not None:
+        save_model(best_strategy_sum, iterations, "deep_cfr_paper_best",
+                   game_name=game_name)
+        print(f"Best checkpoint saved (dist={best_dist:.4f})")

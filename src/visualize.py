@@ -101,10 +101,12 @@ def plot(filepath, game_name, algo, iters_str, out_dir):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--log-dir", default=os.path.join(_ROOT, "logs"))
-    parser.add_argument("--output-dir", default=os.path.join(_ROOT, "eval", "visualizations"))
+    parser.add_argument("--output-dir", default=None,
+                        help="base output dir (default: eval/)")
     parser.add_argument("log_pattern", nargs="?", default="*_strategy_*.txt",
                         help="glob relative to log-dir")
     args = parser.parse_args()
+    base = args.output_dir or os.path.join(_ROOT, "eval")
 
     files = sorted(glob.glob(os.path.join(args.log_dir, args.log_pattern)))
     if not files:
@@ -125,7 +127,7 @@ def main():
         if algo is None:
             print(f"[skip] {bn}")
             continue
-        out_sub = os.path.join(args.output_dir, f"{game}_{algo}_{iters}")
+        out_sub = os.path.join(base, f"{game}_{algo}_{iters}", "visualizations")
         print(f"[plot] {game}_{algo}_{iters}")
         plot(fp, game, algo, iters, out_sub)
 

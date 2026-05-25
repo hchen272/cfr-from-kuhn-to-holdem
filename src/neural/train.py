@@ -100,6 +100,7 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn",
     nash = getattr(game, 'nash_value', None)
     best_dist = float("inf")
     best_strategy_sum = None
+    best_cur_val = None
 
     for episode in range(1, iterations + 1):
         cards = game.deal_cards()
@@ -120,14 +121,15 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn",
             print(f"  Episode {episode:>8,}  |  avg value: {avg_val:.4f}  "
                   f"|  buffer: {len(buffer):,}")
 
-            # Checkpoint: save if closer to Nash value
-            dist = abs(avg_val - nash) if nash is not None else float("inf")
-            if dist < best_dist:
-                best_dist = dist
+            # Checkpoint: save if closer to Nash value (using current value)
+            cur_d = abs(episode_util - nash) if nash is not None else float("inf")
+            if cur_d < best_dist:
+                best_dist = cur_d
+                best_cur_val = episode_util
                 best_strategy_sum = {
                     k: v.copy() for k, v in agent.strategy_sum.items()
                 }
-                print(f"           [new best] (avg={avg_val:.4f}, dist_to_nash={dist:.4f})")
+                print(f"           [new best] cur={episode_util:+.4f} (dist={cur_d:.4f})")
 
         # --- full snapshot (log + strategies) ------------------------
         if episode % snapshot_every == 0:
@@ -140,7 +142,7 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn",
     if best_strategy_sum is not None:
         agent.strategy_sum = best_strategy_sum
         print(f"\n[CHECKPOINT] Restored best strategy "
-              f"(dist to Nash={best_dist:.4f})")
+              f"cur={best_cur_val:+.4f} (dist={best_dist:.4f})")
 
     # --- final output ------------------------------------------------
     _print_final_strategies(agent, total_util, iterations)
@@ -148,6 +150,11 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn",
     # save model (pickle the strategy_sum dict for consistency)
     model_path = save_model(agent.strategy_sum, iterations, log_prefix,
                             game_name=game_name)
+
+    if best_strategy_sum is not None:
+        save_model(best_strategy_sum, iterations, log_prefix + "_best",
+                   game_name=game_name)
+        print(f"Best checkpoint saved: {log_prefix}_best (dist={best_dist:.4f})")
     return agent
 
 

@@ -1,5 +1,10 @@
 """Evaluation pipeline — auto-discovers models, runs visualization + exploitability.
 
+Output structure:
+    eval/{game}_{algo}_{iters}/
+        visualizations/   ← game_value.png (plus Kuhn per-infoset PNGs)
+        exploitability/   ← {model_name}.txt
+
 Usage:
     python eval_pipeline.py                    # scan models/, run all
     python eval_pipeline.py --model leduc_cfr_plus_2e+06  # single model
@@ -11,56 +16,47 @@ SRC = os.path.join(_ROOT, "src")
 MODELS_DIR = os.path.join(_ROOT, "models")
 LOGS_DIR = os.path.join(_ROOT, "logs")
 EVAL_DIR = os.path.join(_ROOT, "eval")
-VIS_DIR = os.path.join(EVAL_DIR, "visualizations")
-EXP_DIR = os.path.join(EVAL_DIR, "exploitability")
 
-# Which algorithms produce tabular models (check_exploit-compatible)
 TABULAR_ALGOS = {"cfr", "cfr_plus", "dcfr", "pdcfr_plus"}
-
-os.makedirs(VIS_DIR, exist_ok=True)
-os.makedirs(EXP_DIR, exist_ok=True)
 
 
 def discover_models():
-    """Return list of (game, algo, iters_str, pkl_path)."""
     models = []
     for fp in sorted(glob.glob(os.path.join(MODELS_DIR, "*.pkl"))):
         bn = os.path.basename(fp).removesuffix(".pkl")
-        # Format: {game}_{algo}_{iters}
         m = re.match(r"^([a-z]+)_([a-z_]+)_(\de[+-]\d+)$", bn)
         if m:
-            models.append((m.group(1), m.group(2), m.group(3), fp))
+            game, algo, iters_str = m.group(1), m.group(2), m.group(3)
+            base_algo = algo.replace("_best", "")
+            is_best = algo.endswith("_best")
+            models.append((game, algo, base_algo, iters_str, fp, is_best))
     return models
 
 
 def find_log(game, algo, iters_str):
-    """Return log path or None."""
-    expected = f"{game}_strategy_{algo}_{iters_str}.txt"
-    fp = os.path.join(LOGS_DIR, expected)
+    fp = os.path.join(LOGS_DIR, f"{game}_strategy_{algo}_{iters_str}.txt")
     return fp if os.path.isfile(fp) else None
 
 
 def run_visualization(log_path, game, algo, iters_str):
-    """Run src/visualize.py for a single log."""
-    out_dir = os.path.join(VIS_DIR, f"{game}_{algo}_{iters_str}")
+    out_dir = os.path.join(EVAL_DIR, f"{game}_{algo}_{iters_str}", "visualizations")
     os.makedirs(out_dir, exist_ok=True)
-    cmd = [sys.executable, os.path.join(SRC, "visualize.py"),
-           "--log-dir", LOGS_DIR, "--output-dir", VIS_DIR,
-           f"{game}_strategy_{algo}_{iters_str}.txt"]
-    subprocess.run(cmd, cwd=_ROOT)
+    subprocess.run([sys.executable, os.path.join(SRC, "visualize.py"),
+                    "--log-dir", LOGS_DIR, "--output-dir", EVAL_DIR,
+                    f"{game}_strategy_{algo}_{iters_str}.txt"],
+                   cwd=_ROOT)
 
 
 def run_exploitability(pkl_path, game, algo, iters_str):
-    """Run src/check_exploit.py for a tabular model, save report."""
     model_name = f"{game}_{algo}_{iters_str}"
-    out_txt = os.path.join(EXP_DIR, f"{model_name}.txt")
+    out_dir = os.path.join(EVAL_DIR, model_name, "exploitability")
+    os.makedirs(out_dir, exist_ok=True)
+    out_txt = os.path.join(out_dir, f"{model_name}.txt")
     cmd = [sys.executable, os.path.join(SRC, "check_exploit.py"),
            model_name, "--game", game]
     result = subprocess.run(cmd, cwd=_ROOT, capture_output=True, text=True)
     with open(out_txt, "w", encoding="utf-8") as f:
         f.write(result.stdout)
-        if result.stderr:
-            f.write("\n[STDERR]\n" + result.stderr)
     print(f"  exploit → {out_txt}")
 
 
@@ -85,22 +81,21 @@ def main():
 
     print(f"Found {len(models)} model(s)\n")
 
-    for game, algo, iters_str, pkl_path in models:
-        print(f"── {game}_{algo}_{iters_str} ──")
-        log_path = find_log(game, algo, iters_str)
+    for game, algo, base_algo, iters_str, pkl_path, is_best in models:
+        name = f"{game}_{algo}_{iters_str}"
+        tag = " [BEST]" if is_best else ""
+        print(f"── {name}{tag} ──")
 
-        # Visualization (from log)
+        log_path = find_log(game, base_algo, iters_str) if is_best else find_log(game, algo, iters_str)
         if log_path:
             run_visualization(log_path, game, algo, iters_str)
         else:
-            print(f"  [skip viz] no log at {log_path}")
+            print(f"  [skip viz] no log")
 
-        # Exploitability (tabular only, from model)
-        if algo in TABULAR_ALGOS and os.path.isfile(pkl_path):
+        if base_algo in TABULAR_ALGOS and os.path.isfile(pkl_path):
             run_exploitability(pkl_path, game, algo, iters_str)
         else:
             print(f"  [skip exploit] not tabular or no .pkl")
-
         print()
 
 

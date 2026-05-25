@@ -169,7 +169,11 @@ class Trainer:
 
         total_util = 0.0
         game = self.game
-        root_hid = 0  # empty history always gets ID 0
+        root_hid = 0
+        nash = getattr(game, 'nash_value', None)
+        best_distance = float('inf')
+        best_iter = 0
+        best_node_map = None
 
         for i in range(iterations):
             # Alternating updates: swap every iteration (paper's standard)
@@ -256,6 +260,14 @@ class Trainer:
                 save_strategy_txt(conv, i + 1, avg_value, iterations,
                                   self.algorithm, game_name=self.game_name,
                                   iter_value=cur_value)
+                # ── checkpoint: closest to Nash so far ──
+                if nash is not None:
+                    d = abs(cur_value - nash)
+                    if d < best_distance:
+                        best_distance = d
+                        best_iter = i + 1
+                        best_node_map = conv.copy()
+                        print(f"  >>> checkpoint (dist={d:.6f})")
 
         # Final output
         print("\n=== FINAL STRATEGIES ===\n")
@@ -267,6 +279,11 @@ class Trainer:
 
         save_model(conv, iterations, self.algorithm,
                    game_name=self.game_name)
+
+        if best_node_map is not None:
+            save_model(best_node_map, best_iter, self.algorithm + "_best",
+                       game_name=self.game_name)
+            print(f"Best checkpoint: iter {best_iter} (dist={best_distance:.6f})")
 
 
 if __name__ == "__main__":
