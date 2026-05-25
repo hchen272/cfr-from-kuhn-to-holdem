@@ -16,23 +16,38 @@ python src/trainer.py -a cfr_plus -g kuhn -i 50000 --batch
 python src/trainer.py -a cfr_plus -g leduc -i 2000000 --batch --alternate
 
 # Neural / RL algorithms
-python src/trainer.py -a ddqn      -g kuhn -i 100000
 python src/trainer.py -a nfsp_dual -g leduc -i 50000
 python src/trainer.py -a deep_cfr_paper -g kuhn -i 2000
 ```
 
 ---
 
-## Evaluate Exploitability (tabular models only)
+## Evaluation Pipeline
+
+```bash
+python eval_pipeline.py                    # scan models/, run all
+python eval_pipeline.py --model leduc_cfr_plus_2e+06  # single model
+```
+
+Auto-discovers `.pkl` models in `models/`, matches them with training logs, and produces:
+
+```
+eval/{game}_{algo}_{iters}/
+├── visualizations/
+│   └── game_value.png      # dual-line: cumulative avg + estimated current
+└── exploitability/
+    └── {model_name}.txt    # full BR report
+```
+
+`_best` checkpoint models are also detected and evaluated.
+
+### Manual exploitability check
 
 ```bash
 python src/check_exploit.py leduc_cfr_plus_2e+06 --game leduc
-python src/check_exploit.py kuhn_cfr_1e+07 --game kuhn
 ```
 
-Outputs: BR values, per-player regrets (ε₀, ε₁), exploitability = (ε₀ + ε₁) / 2.
-
-**Note**: Game tree structure changed in the blind-based Leduc fix — old `.pkl` models are incompatible. Delete `models/leduc_*` before training.
+Works for all tabular CFR models and Deep CFR models (strategy saved in FakeNode format).
 
 ---
 
@@ -46,8 +61,8 @@ Outputs: BR values, per-player regrets (ε₀, ε₁), exploitability = (ε₀ +
 | 4 | `pdcfr_plus` | Tabular | Predictive R + discount + clamp |
 | 5 | `deep_cfr` | Neural | RegretNet + reservoir buffer + alternating |
 | 6 | `deep_cfr_paper` | Neural | External sampling + from-scratch retrain + LCFR |
-| 7 | `dqn` | Neural | DQN (vs random opponent) |
-| 8 | `ddqn` | Neural | Double DQN (vs random opponent) |
+| 7 | `dqn` | Neural | DQN (vs random) |
+| 8 | `ddqn` | Neural | Double DQN (vs random) |
 | 9 | `nfsp` | Neural | Single-sided NFSP |
 | 10 | `nfsp_dual` | Neural | Bilateral NFSP (both players learn) |
 
@@ -69,10 +84,26 @@ python src/trainer.py -a <algo> -g <game> -i <iterations> [--batch] [--alternate
 
 ---
 
+## Checkpoints
+
+All training loops automatically save the **best checkpoint** — the model whose rolling-window game value is closest to Nash. Output:
+
+```
+models/leduc_cfr_plus_2e+06.pkl           ← final
+models/leduc_cfr_plus_best_5e+04.pkl      ← best checkpoint (iter in filename)
+```
+
+The checkpoint metric uses **rolling window average** (default: last 2% of iterations) rather than cumulative average, so early random strategies don't mask recent convergence.
+
+---
+
 ## Project Structure
 
 ```
 myCFR/
+├── eval_pipeline.py          # Auto-evaluation orchestrator
+├── diagnostic.py             # Cross-implementation comparison tool
+│
 ├── src/
 │   ├── games/               # Game ABC: kuhn.py, leduc.py
 │   ├── game_selector.py     # get_game(name)
@@ -80,25 +111,21 @@ myCFR/
 │   │
 │   ├── tabular/             # Game tree + CFR (cfr, cfr+, dcfr, pdcfr+)
 │   ├── neural/              # Deep CFR (original)
-│   ├── deep_cfr/            # Deep CFR (paper spec, Brown 2019)
+│   ├── deep_cfr/            # Deep CFR (paper spec)
 │   ├── dqn/                 # DQN
 │   ├── ddqn/                # Double DQN
 │   ├── nfsp/                # NFSP (single-sided)
 │   ├── nfsp_dual/           # NFSP (bilateral) + dual-strategy logger
 │   │
-│   ├── trainer.py           # Unified CLI entry point
+│   ├── trainer.py           # Unified CLI + checkpoint logic
 │   ├── check_exploit.py     # Brute-force exploitability checker
-│   ├── visualize.py         # Auto-scan logs → plots
-│   └── diagnostic.py        # Cross-implementation comparison tool
+│   ├── visualize.py         # Dual-line game value plots
+│   └── diagnostic.py
 │
 ├── rlcard_like/             # Reference Leduc + CFR (rlcard-compatible)
-│   ├── games/leducholdem/
-│   ├── agents/cfr_agent.py
-│   └── train.py
-│
+├── eval/                    # Evaluation outputs (model subdirs)
 ├── logs/                    # Strategy snapshots
 ├── models/                  # Pickled models
-├── visualizations/          # Per-algo plots
 └── references/              # PDF papers
 ```
 
@@ -121,11 +148,11 @@ myCFR/
 - **Deck**: 6 cards (J♠J♥ Q♠Q♥ K♠K♥), 528 infosets, 477 game-tree nodes
 - **Payoffs**: normalised by BB (= 2), matching standard Leduc convention
 
-Key fixes applied: blind-based investment tracking via `raised[]`, CALL always matches current max bet, MAX_RAISES=3 for standard rules. These were the root cause of prior non-convergence.
+Key fixes applied: blind-based investment tracking via `raised[]`, CALL always matches max bet, MAX_RAISES=3. These were the root cause of prior non-convergence.
 
 ---
 
-## Recommended Training Commands
+## Training Commands
 
 ```bash
 # ── Kuhn Poker ──
@@ -134,17 +161,9 @@ python src/trainer.py -a cfr_plus -g kuhn -i 50000 --batch
 # ── Leduc Hold'em ──
 python src/trainer.py -a cfr_plus -g leduc -i 2000000 --batch --alternate
 python src/trainer.py -a dcfr -g leduc -i 5000000 --batch --alternate
-python src/trainer.py -a cfr -g leduc -i 1000000 --batch
 
-# ── Neural exploration ──
-python src/trainer.py -a nfsp_dual -g leduc -i 50000
-python src/trainer.py -a deep_cfr -g kuhn -i 1000000 --alternate
-
-# ── External reference ──
-python rlcard_like/train.py -i 100000
-
-# ── Cross-implementation diagnostic ──
-python diagnostic.py
+# ── Evaluation ──
+python eval_pipeline.py
 ```
 
 ---
@@ -155,4 +174,4 @@ python diagnostic.py
 - Tammelin (2014) — Solving Large Imperfect Information Games Using CFR+
 - Brown & Sandholm (2019) — Solving Imperfect-Information Games via Discounted Regret Minimization
 - Brown et al. (2019) — Deep Counterfactual Regret Minimization
-- Heinrich & Silver (2016) — Deep Reinforcement Learning from Self-Play in Imperfect-Information Games (NFSP)
+- Heinrich & Silver (2016) — Deep Reinforcement Learning from Self-Play (NFSP)

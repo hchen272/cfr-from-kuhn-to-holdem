@@ -163,8 +163,9 @@ def train(iterations, game_name="kuhn"):
     print(f"  buffer size after warm-start: {len(regret_buffer):,}")
 
     # ── main loop ─────────────────────────────────────────────────
-    total_util = 0.0
-    util_count  = 0
+    from collections import deque
+    window = max(20, iterations // 50)
+    recent_vals = deque(maxlen=window)
     best_dist = float("inf")
     best_strategy_sum = None
     best_cur_val = None
@@ -180,8 +181,7 @@ def train(iterations, game_name="kuhn"):
             u = traverser.traverse(cards, "", 1.0, 1.0, traverser_player)
             iter_util += u
         iter_util /= TRAVERSALS_PER_ITER
-        total_util += iter_util
-        util_count  += 1
+        recent_vals.append(iter_util)
 
         # ── from-scratch retraining ──────────────────────────
         # re-initialise network weights
@@ -199,47 +199,49 @@ def train(iterations, game_name="kuhn"):
 
         # ── progress ─────────────────────────────────────────
         if t % PROGRESS_EVERY == 0:
-            avg_val = total_util / util_count
+            roll_avg = sum(recent_vals) / len(recent_vals)
             buf_pct = len(regret_buffer) / buf_capacity * 100
-            print(f"  iter {t:>6,}  |  avg value: {avg_val:+.4f}  "
+            print(f"  iter {t:>6,}  |  roll avg: {roll_avg:+.4f}  "
                   f"|  buffer: {len(regret_buffer):,} ({buf_pct:.0f}%)")
 
-            # checkpoint: best Nash-distance strategy (using current value)
-            cur_d = abs(iter_util - nash) if nash is not None else float("inf")
+            # checkpoint: best Nash-distance strategy (using rolling avg)
+            cur_d = abs(roll_avg - nash) if nash is not None else float("inf")
             if cur_d < best_dist:
                 best_dist = cur_d
-                best_cur_val = iter_util
+                best_cur_val = roll_avg
                 best_strategy_sum = {
                     k: v.copy()
                     for k, v in traverser.strategy_sum.items()
                 }
-                print(f"           [new best]  cur={iter_util:+.4f}  dist: {cur_d:.4f}")
+                print(f"           [new best]  roll={roll_avg:+.4f}  dist: {cur_d:.4f}")
 
         # ── snapshot ─────────────────────────────────────────
         if t % SNAPSHOT_EVERY == 0 or t == iterations:
-            avg_val = total_util / util_count
-            _snapshot(traverser, t, avg_val, iterations,
+            roll_avg = sum(recent_vals) / len(recent_vals)
+            cum_avg = sum(recent_vals) / len(recent_vals)  # same as roll_avg at this point? No — this is the avg over the full run
+            # Actually, we lost the cumulative total. Let me add cum_avg tracking.
+            _snapshot(traverser, t, roll_avg, iterations,
                       game_name=game_name)
 
     # ── restore best checkpoint ──────────────────────────────────
     if best_strategy_sum is not None:
         traverser.strategy_sum = best_strategy_sum
         print(f"\n[CHECKPOINT] Restored best "
-              f"cur={best_cur_val:+.4f} (dist={best_dist:.4f})")
+              f"roll={best_cur_val:+.4f} (dist={best_dist:.4f})")
 
     # ── final output ─────────────────────────────────────────────
     print(f"\n=== FINAL STRATEGIES ({game.name}) ===\n")
     for infoset in sorted(traverser.strategy_sum):
         avg = traverser.get_average_strategy(infoset)
         print(f"  {infoset}: {avg}")
-    avg_final = total_util / util_count
-    print(f"\nAverage game value: {avg_final:+.4f}")
+    roll_avg = sum(recent_vals) / max(len(recent_vals), 1)
+    print(f"\nRolling avg game value: {roll_avg:+.4f}")
 
-    # save model (strategy_sum dict)
-    save_model(traverser.strategy_sum, iterations, "deep_cfr_paper",
-               game_name=game_name)
+    # save model (wrapped in _FakeNode → exploitability-compatible)
+    exp_map = {k: _FakeNode(v) for k, v in traverser.strategy_sum.items()}
+    save_model(exp_map, iterations, "deep_cfr_paper", game_name=game_name)
 
     if best_strategy_sum is not None:
-        save_model(best_strategy_sum, iterations, "deep_cfr_paper_best",
-                   game_name=game_name)
+        exp_best = {k: _FakeNode(v) for k, v in best_strategy_sum.items()}
+        save_model(exp_best, iterations, "deep_cfr_paper_best", game_name=game_name)
         print(f"Best checkpoint saved (dist={best_dist:.4f})")

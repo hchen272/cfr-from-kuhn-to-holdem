@@ -93,8 +93,10 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn",
     _warm_start_buffer(buffer, n=warm_start_n, agent=agent, game=game)
 
     # --- main training loop ------------------------------------------
-    total_util = 0.0
-    snapshot_every = max(1, iterations // 100)   # ~100 full snapshots
+    from collections import deque
+    window = max(20, iterations // 50)
+    recent_vals = deque(maxlen=window)
+    snapshot_every = max(1, iterations // 100)
 
     # Checkpoint: track strategy closest to Nash equilibrium value
     nash = getattr(game, 'nash_value', None)
@@ -108,7 +110,7 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn",
         up = episode % 2 if alternate else -1   # -1 = both
         episode_util = agent.traverse(cards, "", 1.0, 1.0,
                                       update_player=up)
-        total_util += episode_util
+        recent_vals.append(episode_util)
 
         # --- train network every TRAIN_FREQ episodes -----------------
         if episode % TRAIN_FREQ == 0 and len(buffer) >= BATCH_SIZE:
@@ -117,44 +119,54 @@ def train_deep_cfr(iterations, log_prefix="deep_cfr", game_name="kuhn",
 
         # --- lightweight one-line progress ---------------------------
         if episode % PROGRESS_EVERY == 0:
-            avg_val = total_util / episode
-            print(f"  Episode {episode:>8,}  |  avg value: {avg_val:.4f}  "
+            roll_avg = sum(recent_vals) / len(recent_vals)
+            print(f"  Episode {episode:>8,}  |  roll avg: {roll_avg:+.4f}  "
                   f"|  buffer: {len(buffer):,}")
 
             # Checkpoint: save if closer to Nash value (using current value)
-            cur_d = abs(episode_util - nash) if nash is not None else float("inf")
+            cur_d = abs(roll_avg - nash) if nash is not None else float("inf")
             if cur_d < best_dist:
                 best_dist = cur_d
-                best_cur_val = episode_util
+                best_cur_val = roll_avg
                 best_strategy_sum = {
                     k: v.copy() for k, v in agent.strategy_sum.items()
                 }
-                print(f"           [new best] cur={episode_util:+.4f} (dist={cur_d:.4f})")
+                print(f"           [new best] roll={roll_avg:+.4f} (dist={cur_d:.4f})")
 
         # --- full snapshot (log + strategies) ------------------------
         if episode % snapshot_every == 0:
-            avg_val = total_util / episode
-            _log_snapshot(agent, episode, avg_val, iterations,
+            roll_avg = sum(recent_vals) / len(recent_vals)
+            _log_snapshot(agent, episode, roll_avg, iterations,
                           log_prefix, node_map_for_logging,
                           game_name=game_name)
 
     # --- restore best checkpoint for final output --------------------
     if best_strategy_sum is not None:
         agent.strategy_sum = best_strategy_sum
-        print(f"\n[CHECKPOINT] Restored best strategy "
-              f"cur={best_cur_val:+.4f} (dist={best_dist:.4f})")
+        print(f"\n[CHECKPOINT] Restored best "
+              f"roll={best_cur_val:+.4f} (dist={best_dist:.4f})")
 
     # --- final output ------------------------------------------------
-    _print_final_strategies(agent, total_util, iterations)
+    roll_avg = sum(recent_vals) / max(len(recent_vals), 1)
+    print(f"\n=== FINAL STRATEGIES ===\n")
+    for infoset in sorted(agent.strategy_sum):
+        avg = agent.get_average_strategy(infoset)
+        print(f"{infoset}: {avg}")
+    print(f"Rolling avg game value: {roll_avg:+.4f}\n")
 
-    # save model (pickle the strategy_sum dict for consistency)
-    model_path = save_model(agent.strategy_sum, iterations, log_prefix,
-                            game_name=game_name)
+    # save (_FakeNode-wrapped → exploitability-compatible)
+    exp_map = {k: _FakeNode(agent.get_average_strategy(k))
+               for k in agent.strategy_sum}
+    save_model(exp_map, iterations, log_prefix, game_name=game_name)
 
     if best_strategy_sum is not None:
-        save_model(best_strategy_sum, iterations, log_prefix + "_best",
-                   game_name=game_name)
-        print(f"Best checkpoint saved: {log_prefix}_best (dist={best_dist:.4f})")
+        saved = dict(agent.strategy_sum)
+        agent.strategy_sum = best_strategy_sum
+        exp_best = {k: _FakeNode(agent.get_average_strategy(k))
+                    for k in best_strategy_sum}
+        agent.strategy_sum = saved
+        save_model(exp_best, iterations, log_prefix + "_best", game_name=game_name)
+        print(f"Best checkpoint saved (dist={best_dist:.4f})")
     return agent
 
 
