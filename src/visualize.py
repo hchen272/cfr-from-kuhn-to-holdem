@@ -66,12 +66,24 @@ def plot(filepath, game_name, algo, iters_str, out_dir):
         plt.figure(figsize=(10, 5))
         plt.plot(gv["iters"], gv["avg"], label="Average (cumulative)", color="steelblue", linewidth=1)
 
-        # Align current-values to match iterations (possibly shorter)
         if gv["cur"]:
+            # Use explicitly logged current values
             cur_iters = gv["iters"][-len(gv["cur"]):] if len(gv["cur"]) <= len(gv["iters"]) else gv["iters"]
-            cur_vals = gv["cur"]
-            plt.plot(cur_iters[-len(cur_vals):], cur_vals,
+            plt.plot(cur_iters[-len(gv["cur"]):], gv["cur"],
                      label="Current (per snapshot)", color="darkorange", linewidth=1, alpha=0.8)
+        elif len(gv["avg"]) >= 2:
+            # Estimate windowed current value from cumulative averages:
+            #   cur_window ≈ (avg_n * n - avg_{n-1} * n_prev) / (n - n_prev)
+            est_cur = [gv["avg"][0]]
+            est_iters = [gv["iters"][0]]
+            for i in range(1, len(gv["avg"])):
+                ni, n_prev = gv["iters"][i], gv["iters"][i-1]
+                if ni > n_prev:
+                    ec = (gv["avg"][i] * ni - gv["avg"][i-1] * n_prev) / (ni - n_prev)
+                    est_cur.append(ec)
+                    est_iters.append(ni)
+            plt.plot(est_iters, est_cur,
+                     label="Current (estimated)", color="darkorange", linewidth=1, alpha=0.5, linestyle="--")
 
         nv, nl = _NASH.get(game_name, (None, None))
         if nv is not None:
