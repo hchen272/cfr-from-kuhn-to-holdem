@@ -17,6 +17,8 @@ class Game(ABC):
     # ── Class-level constants (also accessible as instance attributes) ──
     CARDS: list = []
     ACTIONS: list = []
+    RANKS: list = []        # e.g. ['J','Q','K'] — override in subclass
+    SUIT_COUNT: int = 1     # copies per rank (1=Kuhn, 2=Leduc-family)
 
     # ── Metadata ────────────────────────────────────────────────────────
 

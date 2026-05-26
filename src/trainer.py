@@ -1,9 +1,15 @@
 import argparse
 import random
 import copy
+from collections import deque
 import numpy as np
 from game_selector import get_game
 from utils import save_strategy_txt, save_model
+
+# ── Variance-based checkpoint threshold ──
+# When nash_value is unknown (None), a rolling-window standard deviation
+# below this threshold triggers a convergence checkpoint.
+_CONVERGENCE_STD_THRESHOLD = 0.003
 
 
 class Trainer:
@@ -30,52 +36,47 @@ class Trainer:
     def _batch_deals(self):
         """Return list of (cards, comm_rank, weight) covering all instances.
 
-        Weights are proportional to the number of card-instance deals sharing
-        the same rank pattern, so that regret deltas can be averaged in an
-        instance-weighted sense.
+        General formula for SUIT_COUNT = s:
+            all-three-different: w = s³
+            any-equality:        w = s²(s−1)
 
-        Leduc (6-card deck: J₁J₂ Q₁Q₂ K₁K₂ → 120 ordered deals):
-
-            P0≠P1, comm≠P0≠P1  (e.g. J-Q-K) : 6 patterns × 8 = 48  → w=8
-            P0≠P1, comm=P0     (e.g. J-Q-J) : 6 patterns × 4 = 24  → w=4
-            P0≠P1, comm=P1     (e.g. J-Q-Q) : 6 patterns × 4 = 24  → w=4
-            P0=P1              (e.g. J-J-Q) : 6 patterns × 4 = 24  → w=4
-                                          total = 120
+        E.g. Leduc (s=2): w=8 (all-diff), w=4 (any match); 120 ordered deals.
+        Expanded Leduc (s=2, 4 ranks): w=8, w=4; 336 ordered deals.
         """
         game = self.game
-        if game.name == 'kuhn':
-            ranks = ['J', 'Q', 'K']
+        ranks = getattr(game, 'RANKS', ['J', 'Q', 'K'])
+        s = getattr(game, 'SUIT_COUNT', 1)
+
+        if not hasattr(game, '_community_rank'):
+            # Kuhn-style: no community card
             deals = []
             for p0 in ranks:
                 for p1 in ranks:
                     if p1 != p0:
                         deals.append(((p0, p1), '', 1))
             return deals
-        elif game.name == 'leduc':
-            ranks = ['J', 'Q', 'K']
-            deals = []
-            # P0 ≠ P1 — 18 rank combos
-            for p0 in ranks:
-                for p1 in ranks:
-                    if p1 == p0:
-                        continue
-                    for comm in self.tree._comm_ranks:
-                        if comm != p0 and comm != p1:
-                            w = 8  # all-different: 2×2×2 = 8 instances
-                        else:
-                            w = 4  # comm matches P0 or P1: 2×2×1 = 4
-                        deals.append(((p0, p1), comm, w))
-            # P0 ＝ P1 — 6 rank combos (previously missing)
-            for r in ranks:
+
+        # Leduc-style: community card enumeration
+        deals = []
+        # P0 ≠ P1
+        for p0 in ranks:
+            for p1 in ranks:
+                if p1 == p0:
+                    continue
                 for comm in self.tree._comm_ranks:
-                    if comm == r:
-                        continue
-                    # 2 ways to assign suits × 4 remaining comm cards = 8,
-                    # but split across the 2 comm ranks → 4 per deal
-                    deals.append(((r, r), comm, 4))
-            return deals
-        else:
-            raise ValueError(f"Unknown game: {game.name}")
+                    if comm != p0 and comm != p1:
+                        w = s ** 3
+                    else:
+                        w = s * s * (s - 1)
+                    deals.append(((p0, p1), comm, w))
+        # P0 ＝ P1
+        for r in ranks:
+            for comm in self.tree._comm_ranks:
+                if comm == r:
+                    continue
+                w = s * s * (s - 1)
+                deals.append(((r, r), comm, w))
+        return deals
 
     def _train_mccfr(self, iterations):
         """External Sampling MCCFR — tabular regret/strategy storage."""
@@ -103,7 +104,8 @@ class Trainer:
             p0r, p1r = cards
 
             # Enumerate community cards with correct probability
-            remain = {'J': 2, 'Q': 2, 'K': 2}
+            s = getattr(game, 'SUIT_COUNT', 1)
+            remain = {r: s for r in getattr(game, 'RANKS', [])}
             remain[p0r] -= 1
             remain[p1r] -= 1
             total_rem = sum(remain.values())
@@ -137,6 +139,14 @@ class Trainer:
                         best_iter = t
                         best_node_map = {k: copy.deepcopy(v) for k, v in conv.items()}
                         print(f"  >>> checkpoint (dist={d:.6f})")
+                elif len(recent_vals) >= window // 2:
+                    # Variance-based convergence checkpoint
+                    roll_std = float(np.std(list(recent_vals)))
+                    if roll_std < _CONVERGENCE_STD_THRESHOLD and roll_std < best_dist:
+                        best_dist = roll_std
+                        best_iter = t
+                        best_node_map = {k: copy.deepcopy(v) for k, v in conv.items()}
+                        print(f"  >>> checkpoint (std={roll_std:.6f}, roll_avg={roll_avg:+.6f})")
 
         print(f"\n=== FINAL STRATEGIES ===\n")
         conv = self._converted_node_map(node_map)
@@ -147,7 +157,8 @@ class Trainer:
         save_model(conv, iterations, "mccfr", game_name=game.name)
         if best_node_map is not None:
             save_model(best_node_map, best_iter, "mccfr_best", game_name=game.name)
-            print(f"Best checkpoint: iter {best_iter} (dist={best_dist:.6f})")
+            metric = "dist" if nash is not None else "std"
+            print(f"Best checkpoint: iter {best_iter} ({metric}={best_dist:.6f})")
 
     def train(self, iterations, batch=False):
         # ---- Double DQN ---- (episode-based RL)
@@ -252,6 +263,8 @@ class Trainer:
         best_distance = float('inf')
         best_iter = 0
         best_node_map = None
+        window = max(20, iterations // 50)
+        recent_vals = deque(maxlen=window)
 
         for i in range(iterations):
             # Alternating updates: swap every iteration (paper's standard)
@@ -274,7 +287,8 @@ class Trainer:
                         node.reset_batch()
 
                 for cards, comm_rank, *rest in batch_deals:
-                    game._comm = (comm_rank, 0) if comm_rank else game._comm
+                    if comm_rank:
+                        game._comm = (comm_rank, 0)
                     dw = rest[0] if rest else 1.0
                     if is_weighted:
                         iter_util += dw * cfr_fn(
@@ -310,7 +324,8 @@ class Trainer:
                 if self.tree._comm_ranks:
                     # ── enumerate all community cards with correct probability ──
                     p0r, p1r = cards
-                    remain = {'J': 2, 'Q': 2, 'K': 2}
+                    s = getattr(game, 'SUIT_COUNT', 1)
+                    remain = {r: s for r in getattr(game, 'RANKS', [])}
                     remain[p0r] -= 1
                     remain[p1r] -= 1
                     total_rem = sum(remain.values())
@@ -328,17 +343,19 @@ class Trainer:
                                        root_hid, 1.0, 1.0, node_map, **extra)
 
             total_util += iter_util
+            recent_vals.append(iter_util)
 
             if (i + 1) % max(1, iterations // 100) == 0:
                 avg_value = round(total_util / (i + 1), 6)
                 cur_value = round(iter_util, 6)
+                roll_avg = sum(recent_vals) / len(recent_vals) if recent_vals else 0.0
                 pct = (i + 1) / iterations * 100
-                print(f"[{pct:5.1f}%] Iter {i+1:>12,}  |  avg: {avg_value:+.6f}  cur: {cur_value:+.6f}")
+                print(f"[{pct:5.1f}%] Iter {i+1:>12,}  |  avg: {avg_value:+.6f}  cur: {cur_value:+.6f}  roll: {roll_avg:+.6f}")
                 conv = self._converted_node_map(node_map)
                 save_strategy_txt(conv, i + 1, avg_value, iterations,
                                   self.algorithm, game_name=self.game_name,
                                   iter_value=cur_value)
-                # ── checkpoint: closest to Nash so far ──
+                # ── checkpoint ──
                 if nash is not None:
                     d = abs(cur_value - nash)
                     if d < best_distance:
@@ -346,6 +363,14 @@ class Trainer:
                         best_iter = i + 1
                         best_node_map = {k: copy.deepcopy(v) for k, v in conv.items()}
                         print(f"  >>> checkpoint (dist={d:.6f})")
+                elif len(recent_vals) >= window // 2:
+                    # Variance-based convergence checkpoint
+                    roll_std = float(np.std(list(recent_vals)))
+                    if roll_std < _CONVERGENCE_STD_THRESHOLD and roll_std < best_distance:
+                        best_distance = roll_std
+                        best_iter = i + 1
+                        best_node_map = {k: copy.deepcopy(v) for k, v in conv.items()}
+                        print(f"  >>> checkpoint (std={roll_std:.6f}, roll_avg={roll_avg:+.6f})")
 
         # Final output
         print("\n=== FINAL STRATEGIES ===\n")
@@ -361,7 +386,8 @@ class Trainer:
         if best_node_map is not None:
             save_model(best_node_map, best_iter, self.algorithm + "_best",
                        game_name=self.game_name)
-            print(f"Best checkpoint: iter {best_iter} (dist={best_distance:.6f})")
+            metric = "dist" if nash is not None else "std"
+            print(f"Best checkpoint: iter {best_iter} ({metric}={best_distance:.6f})")
 
 
 if __name__ == "__main__":
@@ -381,8 +407,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--game", "-g",
         type=str, default="kuhn",
-        choices=["kuhn", "leduc"],
-        help="Game: 'kuhn' (default) or 'leduc' (when implemented)"
+        choices=["kuhn", "leduc", "expanded_leduc"],
+        help="Game: 'kuhn', 'leduc', or 'expanded_leduc'"
     )
     parser.add_argument(
         "--alternate",

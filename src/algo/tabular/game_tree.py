@@ -21,8 +21,9 @@ class TreeNode:
     player: int
     is_terminal: bool
     legal_actions: list = field(default_factory=list)
-    # child_hids[action_idx] → child_hid  (int), or [hid_J, hid_K, hid_Q] (list)
+    # child_hids[action_idx] → child_hid  (int), or [hid_J, hid_K, ...] (list)
     child_hids: dict = field(default_factory=dict)
+    _comm_rank_idx: dict = field(default_factory=dict)  # {rank_char: list_index}
 
     def child_for(self, action_idx: int, comm_rank: str = "") -> Union[int, None]:
         """Return child_hid, handling community-card forks."""
@@ -31,7 +32,8 @@ class TreeNode:
             return None
         if isinstance(v, int):
             return v
-        idx = {'J': 0, 'Q': 1, 'K': 2}.get(comm_rank, 0)
+        # v is a list indexed by comm_rank order (populated by GameTree._build)
+        idx = self._comm_rank_idx.get(comm_rank, 0)
         return v[idx] if idx < len(v) else v[0]
 
 
@@ -65,7 +67,8 @@ class GameTree:
         self._i2a = {i: a for i, a in enumerate(game.ACTIONS)}
 
         self._has_comm = hasattr(game, '_community_rank')
-        self._comm_ranks = ['J', 'Q', 'K'] if self._has_comm else []
+        self._comm_ranks = list(getattr(game, 'RANKS', [])) if self._has_comm else []
+        self._comm_rank_idx = {r: i for i, r in enumerate(self._comm_ranks)}
         
         # Ensure _comm exists (LeducGame needs it for tree build)
         if self._has_comm and not hasattr(game, '_comm'):
@@ -167,13 +170,14 @@ class GameTree:
             for a_str in self.game.get_legal_actions(hist):
                 ai = self._a2i[a_str]
                 if self._has_comm and not sep_was:
-                    # R1→R2 forking: store list [hid_J, hid_K, hid_Q]
+                    # R1→R2 forking: store list + rank→index mapping
                     children = []
                     for cr in self._comm_ranks:
                         self.game._comm = (cr, 0)
                         child = self.game.build_next_history(hist, a_str)
                         children.append(self._hist_to_id.get(child, -1))
                     node.child_hids[ai] = children
+                    node._comm_rank_idx = self._comm_rank_idx
                 else:
                     # need comm context for R2 histories
                     comm = self._comm_of.get(hid, '')
@@ -183,7 +187,7 @@ class GameTree:
                     node.child_hids[ai] = self._hist_to_id.get(child, -1)
 
         # ── pre-compute payoffs ───
-        ranks = ["J", "Q", "K"]
+        ranks = getattr(self.game, 'RANKS', ["J", "Q", "K"])
         for hid, node in self.nodes.items():
             if not node.is_terminal:
                 continue

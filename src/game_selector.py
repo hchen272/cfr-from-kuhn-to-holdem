@@ -34,9 +34,12 @@ def get_game(game_name: str):
     elif game_name == "leduc":
         from games.leduc import LeducGame
         game = LeducGame()
+    elif game_name == "expanded_leduc":
+        from games.expanded_leduc import ExpandedLeducGame
+        game = ExpandedLeducGame()
     else:
         raise ValueError(f"Unknown game: {game_name!r}. "
-                         f"Available: {list(_GAME_CACHE.keys()) + ['kuhn']}")
+                         f"Available: kuhn, leduc, expanded_leduc")
 
     _GAME_CACHE[game_name] = game
     return game

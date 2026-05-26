@@ -20,6 +20,8 @@ class KuhnGame(Game):
     """Kuhn Poker implementation."""
 
     CARDS = ["J", "Q", "K"]
+    RANKS = ["J", "Q", "K"]
+    SUIT_COUNT = 1
     PASS = "p"
     BET = "b"
     ACTIONS = [PASS, BET]

@@ -1,15 +1,15 @@
 """
-Leduc Hold'em -- a medium-sized poker game with 2 betting rounds.
+Expanded Leduc Hold'em — 4-rank, 8-card extension of Leduc Hold'em.
 
 Rules
 -----
-- Deck: 6 cards (K♠ K♥ Q♠ Q♥ J♠ J♥) — 2 suits, 3 ranks.
+- Deck: 8 cards (A♠ A♥ K♠ K♥ Q♠ Q♥ J♠ J♥) — 2 suits, 4 ranks.
 - Blinds: P0 = SB (1 chip), P1 = BB (2 chips).
 - One community card is dealt after the first betting round.
 - Two betting rounds (pre-flop / flop), fixed limit:
   - Round 1 bet size: 2 chips (= BB).
   - Round 2 bet size: 4 chips (= 2×BB).
-  - Maximum 2 raises per round.
+  - Maximum 1 bet + 2 raises per round (MAX_RAISES=3).
 - Hand evaluation:
     1. Pair (hole matches community) > high card.
     2. Both pairs → higher pair wins.
@@ -18,22 +18,17 @@ Rules
 
 History encoding
 ----------------
-``build_next_history`` inserts the community card rank automatically
-when the first round completes, producing a history like::
+Same as Leduc: ``"cc|Kc"`` — ``|`` + community card rank separates rounds
+(2 chars, preserving player-turn parity).
 
-    "cc|Kc"   (round 1: c-c, community K, round 2: c)
+Cards tuple ``(p0_rank, p1_rank)`` (same shape as Kuhn / Leduc).
 
-The ``|com_rank`` separator is 2 characters, preserving player-turn parity
-(``len(history) % 2`` = current player).
-
-Cards tuple ``(p0_rank, p1_rank)`` (same shape as Kuhn Poker).
-
-Infoset key (used by node map):
+Infoset key:
     ``player_rank + history``
-    e.g. ``"Jcc"`` (round 1) or ``"Jcc|Kc"`` (round 2).
+    e.g. ``"Jcc"`` (round 1) or ``"Acc|Kc"`` (round 2).
 
-Payoffs are normalised by BB (= 2 chips), matching rlcard / standard
-Leduc convention.  Nash value ≈ −0.0855 for P0.
+Payoffs are normalised by BB (= 2 chips).  Nash value (P0) estimated
+≈ −0.099 — preliminary CFR+ batch result; verify with long-run convergence.
 """
 
 import random
@@ -42,7 +37,7 @@ from games import Game
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-LEDUC_RANKS = ["J", "Q", "K"]
+EXPANDED_RANKS = ["J", "Q", "K", "A"]
 SUITS = [0, 1]
 
 CALL = "c"
@@ -55,11 +50,11 @@ BB = 2                     # big blind
 SB = 1                     # small blind
 MAX_RAISES = 3             # 1 bet + 2 raises per round (standard Leduc)
 
-_SEP = "|"  # round separator (1 char for the sep + 1 char for community rank = 2 chars total, preserving parity)
+_SEP = "|"  # round separator (1 char sep + 1 char comm rank = 2 chars, parity-preserving)
 
 
 def _make_deck():
-    return [(r, s) for r in LEDUC_RANKS for s in SUITS]
+    return [(r, s) for r in EXPANDED_RANKS for s in SUITS]
 
 
 def _rank_of(card):
@@ -67,18 +62,18 @@ def _rank_of(card):
 
 
 # ---------------------------------------------------------------------------
-# LeducGame
+# ExpandedLeducGame
 # ---------------------------------------------------------------------------
-class LeducGame(Game):
-    """Leduc Hold'em implementation."""
+class ExpandedLeducGame(Game):
+    """Expanded Leduc Hold'em — 4 ranks (J,Q,K,A) × 2 suits = 8 cards."""
 
-    RANKS = ["J", "Q", "K"]
+    RANKS = ["J", "Q", "K", "A"]
     SUIT_COUNT = 2
     ACTIONS = [CALL, RAISE, FOLD]
 
     @property
     def name(self) -> str:
-        return "leduc"
+        return "expanded_leduc"
 
     @property
     def num_actions(self) -> int:
@@ -86,11 +81,16 @@ class LeducGame(Game):
 
     @property
     def feature_dim(self) -> int:
-        return 19
+        # 4 (my rank) + 4 (community) + 6 (R1 slots) + 6 (R2) + 1 (pot) = 21
+        return 21
 
     @property
     def nash_value(self) -> float:
-        return -0.0855   # known Leduc value for P0
+        # No published Nash value exists for this game.
+        # Returning None triggers variance-based convergence checkpointing
+        # instead of distance-to-known-Nash checkpointing.
+        # Empirical CFR+ batch estimate: ≈ −0.099.
+        return None
 
     # ── Deal ────────────────────────────────────────────────────────────
 
@@ -118,7 +118,6 @@ class LeducGame(Game):
         if _SEP not in history:
             return ""
         parts = history.split(_SEP)
-        # parts[1] = community_rank + r2_actions  (e.g., "Kc")
         return parts[1][1:] if len(parts[1]) > 1 else ""
 
     @staticmethod
@@ -134,8 +133,6 @@ class LeducGame(Game):
         r1 = self._r1_actions(history)
         if not r1:
             return False
-        # Round 1 ends when both players have acted and last action is call
-        # Minimum 2 actions for both to act
         if len(r1) >= 2 and r1[-1] == CALL:
             return True
         return False
@@ -166,7 +163,6 @@ class LeducGame(Game):
                 raised[p] = max(raised) + BET_SIZE_R1
             elif a == CALL:
                 raised[p] = max(raised)
-            # FOLD: no change
 
         for i, a in enumerate(r2):
             p = i % 2
@@ -180,16 +176,10 @@ class LeducGame(Game):
     def build_next_history(self, history: str, action: str) -> str:
         """Extend history, automatically inserting community card
         when transitioning from round 1 to round 2.
-
-        Uses ``|community_rank`` (2 chars) as separator to preserve
-        player-turn parity (``len(history) % 2`` = current player).
         """
         if _SEP not in history:
             if self._is_r1_complete(history):
-                # Already at round-1 boundary (e.g., "cc"):
-                # insert community card before the action
                 return history + _SEP + _rank_of(self._comm) + action
-            # Check if adding this action completes round 1
             next_r1 = history + action
             if self._is_r1_complete(next_r1):
                 return next_r1 + _SEP + _rank_of(self._comm)
@@ -330,11 +320,9 @@ class LeducGame(Game):
     # ── Feature encoding ───────────────────────────────────────────────
 
     def infoset_to_features(self, infoset: str):
-        """Feature vector for Deep CFR (dim = 20)."""
+        """Feature vector for Deep CFR (dim = 21)."""
         my_rank = infoset[0]
 
-        # Extract community rank and action history from infoset
-        # Format: "Jcc|Kc" (player_rank + r1_actions + | + community + r2_actions)
         hist_part = infoset[1:]  # everything after player card
         if _SEP in hist_part:
             parts = hist_part.split(_SEP)
