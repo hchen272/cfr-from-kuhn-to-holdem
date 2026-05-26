@@ -54,9 +54,11 @@ def run_exploitability(pkl_path, game, algo, iters_str):
     out_txt = os.path.join(out_dir, f"{model_name}.txt")
     cmd = [sys.executable, os.path.join(SRC, "check_exploit.py"),
            model_name, "--game", game]
-    result = subprocess.run(cmd, cwd=_ROOT, capture_output=True, text=True)
+    result = subprocess.run(cmd, cwd=_ROOT, capture_output=True, text=True, timeout=300)
     with open(out_txt, "w", encoding="utf-8") as f:
         f.write(result.stdout)
+        if result.stderr:
+            f.write("\n--- STDERR ---\n" + result.stderr)
     print(f"  exploit → {out_txt}")
 
 
@@ -70,8 +72,11 @@ def main():
         if not m:
             print(f"Bad model name: {args.model}")
             return
-        models = [(m.group(1), m.group(2), m.group(3),
-                   os.path.join(MODELS_DIR, args.model + ".pkl"))]
+        algo = m.group(2)
+        base_algo = algo.replace("_best", "")
+        is_best = algo.endswith("_best")
+        models = [(m.group(1), algo, base_algo, m.group(3),
+                   os.path.join(MODELS_DIR, args.model + ".pkl"), is_best)]
     else:
         models = discover_models()
 
