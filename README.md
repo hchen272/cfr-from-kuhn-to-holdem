@@ -170,6 +170,12 @@ python eval_pipeline.py
 
 ## References
 
+### Analysis
+
+- [Kuhn Poker Equilibrium Analysis](comparison/kuhn_poker_equilibrium_analysis.md)
+- [Leduc Hold'em Equilibrium Analysis](comparison/leduc_holdem_equilibrium_analysis.md)
+
+### Papers
 - Zinkevich et al. (2007) — Regret Minimization in Games with Incomplete Information
 - Tammelin (2014) — Solving Large Imperfect Information Games Using CFR+
 - Brown & Sandholm (2019) — Solving Imperfect-Information Games via Discounted Regret Minimization

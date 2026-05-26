@@ -1,5 +1,5 @@
 import numpy as np
-from tabular.node import Node
+from algo.tabular.node import Node
 
 # Separate node map for PDCFR+
 node_map_pdcfr = {}

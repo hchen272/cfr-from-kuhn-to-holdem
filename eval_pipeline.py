@@ -17,7 +17,7 @@ MODELS_DIR = os.path.join(_ROOT, "models")
 LOGS_DIR = os.path.join(_ROOT, "logs")
 EVAL_DIR = os.path.join(_ROOT, "eval")
 
-TABULAR_ALGOS = {"cfr", "cfr_plus", "dcfr", "pdcfr_plus"}
+TABULAR_ALGOS = {"cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr", "deep_cfr_paper", "mccfr"}
 
 
 def discover_models():
@@ -38,12 +38,12 @@ def find_log(game, algo, iters_str):
     return fp if os.path.isfile(fp) else None
 
 
-def run_visualization(log_path, game, algo, iters_str):
-    out_dir = os.path.join(EVAL_DIR, f"{game}_{algo}_{iters_str}", "visualizations")
+def run_visualization(log_path, game, base_algo, iters_str, eval_name):
+    out_dir = os.path.join(EVAL_DIR, eval_name, "visualizations")
     os.makedirs(out_dir, exist_ok=True)
     subprocess.run([sys.executable, os.path.join(SRC, "visualize.py"),
                     "--log-dir", LOGS_DIR, "--output-dir", EVAL_DIR,
-                    f"{game}_strategy_{algo}_{iters_str}.txt"],
+                    f"{game}_strategy_{base_algo}_{iters_str}.txt"],
                    cwd=_ROOT)
 
 
@@ -86,9 +86,9 @@ def main():
         tag = " [BEST]" if is_best else ""
         print(f"── {name}{tag} ──")
 
-        log_path = find_log(game, base_algo, iters_str) if is_best else find_log(game, algo, iters_str)
+        log_path = find_log(game, base_algo, iters_str)
         if log_path:
-            run_visualization(log_path, game, algo, iters_str)
+            run_visualization(log_path, game, base_algo, iters_str, name)
         else:
             print(f"  [skip viz] no log")
 

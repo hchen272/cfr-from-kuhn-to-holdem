@@ -14,7 +14,7 @@ Usage
 """
 
 import numpy as np
-from tabular.node import Node
+from algo.tabular.node import Node
 
 
 # ════════════════════════════════════════════════════════════════════

@@ -14,8 +14,8 @@ the reservoir buffer, and the strategy-accumulation dict.
 
 import numpy as np
 
-from tabular.node import NUM_ACTIONS
-from neural.model import get_strategy_from_regrets
+from algo.tabular.node import NUM_ACTIONS
+from algo.neural.model import get_strategy_from_regrets
 
 
 class DeepCFR:

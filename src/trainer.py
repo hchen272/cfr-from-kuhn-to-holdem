@@ -1,5 +1,6 @@
 import argparse
 import random
+import copy
 import numpy as np
 from game_selector import get_game
 from utils import save_strategy_txt, save_model
@@ -15,7 +16,7 @@ class Trainer:
         self.game = get_game(game_name)
 
         # Build pre-computed game tree (integer-encoded, payoff-cached)
-        from tabular.game_tree import GameTree
+        from algo.tabular.game_tree import GameTree
         self.tree = GameTree(self.game)
 
     def _converted_node_map(self, raw_map):
@@ -76,44 +77,121 @@ class Trainer:
         else:
             raise ValueError(f"Unknown game: {game.name}")
 
+    def _train_mccfr(self, iterations):
+        """External Sampling MCCFR — tabular regret/strategy storage."""
+        from collections import deque
+        from algo.mccfr.mccfr_tree import mccfr_tree
+
+        game = self.game
+        node_map = {}
+        total_util = 0.0
+        nash = getattr(game, 'nash_value', None)
+        best_dist = float('inf')
+        best_node_map = None
+        best_iter = 0
+        window = max(20, iterations // 50)
+        recent_vals = deque(maxlen=window)
+
+        print(f" game: {game.name}  |  algo: mccfr  |  iters: {iterations:,}")
+
+        conv = self._converted_node_map(node_map)
+        save_strategy_txt(conv, 0, 0, iterations, "mccfr", game_name=game.name)
+
+        for t in range(1, iterations + 1):
+            cards = game.deal_cards()
+            traverser = t % 2
+            p0r, p1r = cards
+
+            # Enumerate community cards with correct probability
+            remain = {'J': 2, 'Q': 2, 'K': 2}
+            remain[p0r] -= 1
+            remain[p1r] -= 1
+            total_rem = sum(remain.values())
+
+            iter_util = 0.0
+            for cr, cnt in remain.items():
+                if cnt > 0:
+                    prob = cnt / total_rem
+                    u = mccfr_tree(self.tree, cards, cr, 0, 1.0, 1.0,
+                                   node_map, traverser, update_player=traverser)
+                    iter_util += prob * u
+
+            total_util += iter_util
+            recent_vals.append(iter_util)
+
+            if t % max(1, iterations // 100) == 0:
+                avg_value = round(total_util / t, 6)
+                cur_value = round(iter_util, 6)
+                roll_avg = sum(recent_vals) / len(recent_vals)
+                pct = t / iterations * 100
+                print(f"[{pct:5.1f}%] Iter {t:>12,}  |  avg: {avg_value:+.6f}  "
+                      f"cur: {cur_value:+.6f}  roll: {roll_avg:+.6f}")
+                conv = self._converted_node_map(node_map)
+                save_strategy_txt(conv, t, avg_value, iterations, "mccfr",
+                                  game_name=game.name, iter_value=cur_value)
+
+                if nash is not None:
+                    d = abs(cur_value - nash)
+                    if d < best_dist:
+                        best_dist = d
+                        best_iter = t
+                        best_node_map = {k: copy.deepcopy(v) for k, v in conv.items()}
+                        print(f"  >>> checkpoint (dist={d:.6f})")
+
+        print(f"\n=== FINAL STRATEGIES ===\n")
+        conv = self._converted_node_map(node_map)
+        for infoset in sorted(conv):
+            print(f"{infoset}: {conv[infoset].get_average_strategy()}")
+        print(f"Avg game value: {total_util / iterations:+.4f}")
+
+        save_model(conv, iterations, "mccfr", game_name=game.name)
+        if best_node_map is not None:
+            save_model(best_node_map, best_iter, "mccfr_best", game_name=game.name)
+            print(f"Best checkpoint: iter {best_iter} (dist={best_dist:.6f})")
+
     def train(self, iterations, batch=False):
         # ---- Double DQN ---- (episode-based RL)
         if self.algorithm == 'ddqn':
-            from ddqn.train import train_ddqn
+            from algo.ddqn.train import train_ddqn
             train_ddqn(iterations=iterations, game_name=self.game_name,
                        log_prefix=self.algorithm)
             return
 
         # ---- DQN ---- (episode-based RL)
         if self.algorithm == 'dqn':
-            from dqn.train import train_dqn
+            from algo.dqn.train import train_dqn
             train_dqn(iterations=iterations, game_name=self.game_name,
                       log_prefix=self.algorithm)
             return
 
         # ---- NFSP Dual (bilateral) ---- (episode-based RL, both players learn)
         if self.algorithm == 'nfsp_dual':
-            from nfsp_dual.train import train_nfsp_dual
+            from algo.nfsp_dual.train import train_nfsp_dual
             train_nfsp_dual(iterations=iterations, game_name=self.game_name,
                             log_prefix=self.algorithm)
             return
 
         # ---- NFSP ---- (episode-based RL)
         if self.algorithm == 'nfsp':
-            from nfsp.train import train_nfsp
+            from algo.nfsp.train import train_nfsp
             train_nfsp(iterations=iterations, game_name=self.game_name,
                        log_prefix=self.algorithm)
             return
 
         # ---- Deep CFR (paper spec) —— external sampling + from-scratch ----
         if self.algorithm == 'deep_cfr_paper':
-            from deep_cfr.train import train
+            from algo.deep_cfr.train import train
             train(iterations=iterations, game_name=self.game_name)
+            return
+
+        # ---- MCCFR (tabular, external sampling) ----
+        if self.algorithm == 'mccfr':
+            self._train_mccfr(iterations)
             return
 
         # ---- Deep CFR (original) uses a completely different training loop ----
         if self.algorithm == 'deep_cfr':
-            from neural.train import train_deep_cfr
+            from algo.neural.train import train_deep_cfr
             dcfr_iters = 1000000 if iterations == 10000000 else iterations
             train_deep_cfr(iterations=dcfr_iters, log_prefix=self.algorithm,
                            game_name=self.game_name,
@@ -121,7 +199,7 @@ class Trainer:
             return
 
         # ---- Tabular tree-based algorithms ----
-        from tabular.cfr_tree import (cfr_tree, cfr_plus_tree,
+        from algo.tabular.cfr_tree import (cfr_tree, cfr_plus_tree,
                                       dcfr_tree, pdcfr_plus_tree)
 
         node_map = {}  # local, keyed by integer infoset ID
@@ -266,7 +344,7 @@ class Trainer:
                     if d < best_distance:
                         best_distance = d
                         best_iter = i + 1
-                        best_node_map = conv.copy()
+                        best_node_map = {k: copy.deepcopy(v) for k, v in conv.items()}
                         print(f"  >>> checkpoint (dist={d:.6f})")
 
         # Final output
@@ -292,8 +370,8 @@ if __name__ == "__main__":
         "--algo", "-a",
         type=str, default="cfr",
         choices=["cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr",
-                 "deep_cfr_paper", "dqn", "ddqn", "nfsp", "nfsp_dual"],
-        help="Algorithm: cfr, cfr_plus, dcfr, pdcfr_plus, deep_cfr, deep_cfr_paper, dqn, nfsp"
+                 "deep_cfr_paper", "dqn", "ddqn", "nfsp", "nfsp_dual", "mccfr"],
+        help="Algorithm: cfr, cfr_plus, dcfr, pdcfr_plus, deep_cfr, deep_cfr_paper, dqn, ddqn, nfsp, nfsp_dual, mccfr"
     )
     parser.add_argument(
         "--iterations", "-i",
