@@ -65,6 +65,7 @@ Works for all tabular CFR models and Deep CFR models (strategy saved in FakeNode
 | 8 | `ddqn` | Neural | Double DQN (vs random) |
 | 9 | `nfsp` | Neural | Single-sided NFSP |
 | 10 | `nfsp_dual` | Neural | Bilateral NFSP (both players learn) |
+| 11 | `mccfr` | Tabular | External Sampling MC-CFR |
 
 ---
 
@@ -109,13 +110,15 @@ myCFR/
 │   ├── game_selector.py     # get_game(name)
 │   ├── utils.py             # save/load model, log strategies
 │   │
-│   ├── tabular/             # Game tree + CFR (cfr, cfr+, dcfr, pdcfr+)
-│   ├── neural/              # Deep CFR (original)
-│   ├── deep_cfr/            # Deep CFR (paper spec)
-│   ├── dqn/                 # DQN
-│   ├── ddqn/                # Double DQN
-│   ├── nfsp/                # NFSP (single-sided)
-│   ├── nfsp_dual/           # NFSP (bilateral) + dual-strategy logger
+│   ├── algo/                 # All algorithms
+│   │   ├── tabular/          # Game tree + CFR (cfr, cfr+, dcfr, pdcfr+)
+│   │   ├── neural/           # Deep CFR (original)
+│   │   ├── deep_cfr/         # Deep CFR (paper spec)
+│   │   ├── dqn/              # DQN
+│   │   ├── ddqn/             # Double DQN
+│   │   ├── nfsp/             # NFSP (single-sided)
+│   │   ├── nfsp_dual/        # NFSP (bilateral) + dual-strategy logger
+│   │   └── mccfr/            # External Sampling MC-CFR
 │   │
 │   ├── trainer.py           # Unified CLI + checkpoint logic
 │   ├── check_exploit.py     # Brute-force exploitability checker
@@ -161,6 +164,7 @@ python src/trainer.py -a cfr_plus -g kuhn -i 50000 --batch
 # ── Leduc Hold'em ──
 python src/trainer.py -a cfr_plus -g leduc -i 2000000 --batch --alternate
 python src/trainer.py -a dcfr -g leduc -i 5000000 --batch --alternate
+python src/trainer.py -a mccfr -g leduc -i 1000000
 
 # ── Evaluation ──
 python eval_pipeline.py
