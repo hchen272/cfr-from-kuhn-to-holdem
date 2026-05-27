@@ -19,17 +19,37 @@ EVAL_DIR = os.path.join(_ROOT, "eval")
 
 TABULAR_ALGOS = {"cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr", "deep_cfr_paper", "mccfr"}
 
+# Known game names (longest first so expanded_leduc is tried before leduc)
+_GAME_NAMES = sorted(["kuhn", "leduc", "expanded_leduc"], key=len, reverse=True)
+
+_MODEL_RE = re.compile(r"^(.+)_(\de[+-]\d+)$")
+
+
+def _parse_model_filename(filename: str):
+    """Parse '{game}_{algo}_{iters}.pkl' using known game-name prefixes."""
+    bn = filename.removesuffix(".pkl") if filename.endswith(".pkl") else filename
+    for game in _GAME_NAMES:
+        prefix = game + "_"
+        if bn.startswith(prefix):
+            rest = bn[len(prefix):]
+            m = _MODEL_RE.match(rest)
+            if m:
+                algo, iters_str = m.group(1), m.group(2)
+                return game, algo, iters_str
+    return None
+
 
 def discover_models():
     models = []
     for fp in sorted(glob.glob(os.path.join(MODELS_DIR, "*.pkl"))):
-        bn = os.path.basename(fp).removesuffix(".pkl")
-        m = re.match(r"^([a-z]+)_([a-z_]+)_(\de[+-]\d+)$", bn)
-        if m:
-            game, algo, iters_str = m.group(1), m.group(2), m.group(3)
-            base_algo = algo.replace("_best", "")
-            is_best = algo.endswith("_best")
-            models.append((game, algo, base_algo, iters_str, fp, is_best))
+        bn = os.path.basename(fp)
+        parsed = _parse_model_filename(bn)
+        if parsed is None:
+            continue
+        game, algo, iters_str = parsed
+        base_algo = algo.replace("_best", "")
+        is_best = algo.endswith("_best")
+        models.append((game, algo, base_algo, iters_str, fp, is_best))
     return models
 
 
@@ -68,14 +88,14 @@ def main():
     args = parser.parse_args()
 
     if args.model:
-        m = re.match(r"^([a-z]+)_([a-z_]+)_(\de[+-]\d+)$", args.model)
-        if not m:
+        parsed = _parse_model_filename(args.model)
+        if parsed is None:
             print(f"Bad model name: {args.model}")
             return
-        algo = m.group(2)
+        game, algo, iters_str = parsed
         base_algo = algo.replace("_best", "")
         is_best = algo.endswith("_best")
-        models = [(m.group(1), algo, base_algo, m.group(3),
+        models = [(game, algo, base_algo, iters_str,
                    os.path.join(MODELS_DIR, args.model + ".pkl"), is_best)]
     else:
         models = discover_models()
