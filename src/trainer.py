@@ -36,12 +36,11 @@ class Trainer:
     def _batch_deals(self):
         """Return list of (cards, comm_rank, weight) covering all instances.
 
-        General formula for SUIT_COUNT = s:
-            all-three-different: w = s³
-            any-equality:        w = s²(s−1)
+        For single-card games (Kuhn, Leduc, Expanded Leduc):
+            all-three-different: w = s³, any-equality: w = s²(s−1)
 
-        E.g. Leduc (s=2): w=8 (all-diff), w=4 (any match); 120 ordered deals.
-        Expanded Leduc (s=2, 4 ranks): w=8, w=4; 336 ordered deals.
+        For multi-card games (River Poker):
+            enumerate all rank patterns; weight = Π P(2, count_r) per rank.
         """
         game = self.game
         ranks = getattr(game, 'RANKS', ['J', 'Q', 'K'])
@@ -54,6 +53,29 @@ class Trainer:
                 for p1 in ranks:
                     if p1 != p0:
                         deals.append(((p0, p1), '', 1))
+            return deals
+
+        # Multi-card games (river_poker): enumerate all physical deals, group by rank pattern
+        hand_types = getattr(game, 'HAND_TYPES', None)
+        if hand_types is not None:
+            from itertools import permutations as _perms
+            from collections import Counter as _Counter
+
+            def _hand_str_from_cards(c1, c2):
+                r1, r2 = c1[0], c2[0]
+                return r1 + r2 if game.card_rank(r1) <= game.card_rank(r2) else r2 + r1
+
+            # Enumerate all P(N,5) ordered deals (N = len(ranks)*s)
+            ranks_list = [(r, su) for r in ranks for su in range(s)]
+            pattern_counts = _Counter()
+            for perm in _perms(ranks_list, 5):
+                p0h = _hand_str_from_cards(perm[0], perm[1])
+                p1h = _hand_str_from_cards(perm[2], perm[3])
+                comm = perm[4][0]
+                pattern_counts[((p0h, p1h), comm)] += 1
+
+            deals = [((p0h, p1h), comm, w)
+                     for ((p0h, p1h), comm), w in pattern_counts.items()]
             return deals
 
         # Leduc-style: community card enumeration
@@ -106,8 +128,11 @@ class Trainer:
             # Enumerate community cards with correct probability
             s = getattr(game, 'SUIT_COUNT', 1)
             remain = {r: s for r in getattr(game, 'RANKS', [])}
-            remain[p0r] -= 1
-            remain[p1r] -= 1
+            # Subtract each rank in the player's hand (handles multi-card games)
+            for r in p0r:
+                remain[r] = remain.get(r, 0) - 1
+            for r in p1r:
+                remain[r] = remain.get(r, 0) - 1
             total_rem = sum(remain.values())
 
             iter_util = 0.0
@@ -326,8 +351,10 @@ class Trainer:
                     p0r, p1r = cards
                     s = getattr(game, 'SUIT_COUNT', 1)
                     remain = {r: s for r in getattr(game, 'RANKS', [])}
-                    remain[p0r] -= 1
-                    remain[p1r] -= 1
+                    for r in p0r:
+                        remain[r] = remain.get(r, 0) - 1
+                    for r in p1r:
+                        remain[r] = remain.get(r, 0) - 1
                     total_rem = sum(remain.values())
                     iter_util = 0.0
                     for cr in self.tree._comm_ranks:
@@ -407,8 +434,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--game", "-g",
         type=str, default="kuhn",
-        choices=["kuhn", "leduc", "expanded_leduc"],
-        help="Game: 'kuhn', 'leduc', or 'expanded_leduc'"
+        choices=["kuhn", "leduc", "expanded_leduc", "river_poker"],
+        help="Game: 'kuhn', 'leduc', 'expanded_leduc', or 'river_poker'"
     )
     parser.add_argument(
         "--alternate",

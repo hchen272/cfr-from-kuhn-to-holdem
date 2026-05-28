@@ -20,7 +20,7 @@ EVAL_DIR = os.path.join(_ROOT, "eval")
 TABULAR_ALGOS = {"cfr", "cfr_plus", "dcfr", "pdcfr_plus", "deep_cfr", "deep_cfr_paper", "mccfr"}
 
 # Known game names (longest first so expanded_leduc is tried before leduc)
-_GAME_NAMES = sorted(["kuhn", "leduc", "expanded_leduc"], key=len, reverse=True)
+_GAME_NAMES = sorted(["kuhn", "leduc", "expanded_leduc", "river_poker"], key=len, reverse=True)
 
 _MODEL_RE = re.compile(r"^(.+)_(\de[+-]\d+)$")
 

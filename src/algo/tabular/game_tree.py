@@ -187,12 +187,15 @@ class GameTree:
                     node.child_hids[ai] = self._hist_to_id.get(child, -1)
 
         # ── pre-compute payoffs ───
-        ranks = getattr(self.game, 'RANKS', ["J", "Q", "K"])
+        # Use HAND_TYPES for multi-card games (river_poker), else RANKS
+        hand_types = getattr(self.game, 'HAND_TYPES', None)
+        if hand_types is None:
+            hand_types = getattr(self.game, 'RANKS', ["J", "Q", "K"])
         for hid, node in self.nodes.items():
             if not node.is_terminal:
                 continue
-            for p0r in ranks:
-                for p1r in ranks:
+            for p0r in hand_types:
+                for p1r in hand_types:
                     self._payoff_cache[(hid, p0r, p1r)] = \
                         self.game.get_payoff(node.history_str, (p0r, p1r))
 
