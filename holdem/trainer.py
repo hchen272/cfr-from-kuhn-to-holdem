@@ -15,7 +15,6 @@ Usage
 """
 import sys
 import os
-import copy
 import json
 import argparse
 import time
@@ -176,6 +175,9 @@ class HoldemTrainer:
                     "nodes": len(node_map),
                     "elapsed_s": round(elapsed, 1),
                 })
+                # Flush stats to disk incrementally so data survives
+                # early termination (Ctrl-C, crash, etc.)
+                _save_stats(stats_history, iterations, algo_key)
 
             # ── Checkpoint every N% ──
             if t % checkpoint_interval == 0:
@@ -183,8 +185,15 @@ class HoldemTrainer:
                             if recent_vals else 0.0)
                 roll_std = (float(np.std(list(recent_vals)))
                             if len(recent_vals) > 1 else 0.0)
-                cp_copy = {k: copy.deepcopy(v) for k, v in node_map.items()}
-                checkpoints.append((t, cp_copy, roll_avg, roll_std))
+
+                # Save directly to disk (no deepcopy — too slow at 10M+ nodes)
+                cp_filename = (f"{self.game_name}_{algo_key}"
+                               f"_cp{t//checkpoint_interval}_{t:.0e}.pkl")
+                cp_filepath = os.path.join(_MODELS_DIR, cp_filename)
+                with open(cp_filepath, "wb") as f:
+                    pickle.dump(node_map, f)
+
+                checkpoints.append((t, cp_filepath, roll_avg, roll_std))
                 print(f"  >>> checkpoint at iter {t:,} "
                       f"(roll_avg={roll_avg:+.4f}, std={roll_std:.4f})")
 
@@ -206,18 +215,34 @@ class HoldemTrainer:
         if checkpoints:
             n_consider = min(_BEST_FROM_LAST, len(checkpoints))
             recent_cps = checkpoints[-n_consider:]
-            best_cp = min(recent_cps, key=lambda x: x[3])  # sort by roll_std
-            best_iter, best_map, best_avg, best_std = best_cp
+            best_cp = min(recent_cps, key=lambda x: x[3])  # (iter, path, avg, std)
+            best_iter, best_path, best_avg, best_std = best_cp
+
+            # Load the best checkpoint and save with the canonical name
+            with open(best_path, "rb") as f:
+                best_map = pickle.load(f)
             save_model(best_map, best_iter, algo_key + "_best",
                        game_name=self.game_name)
             print(f"Best checkpoint: iter {best_iter:,} "
                   f"(roll_avg={best_avg:+.4f}, std={best_std:.4f})")
 
-            # Also save the very last checkpoint as an explicit milestone
+            # Also keep the very last checkpoint as an explicit milestone
             last_cp = checkpoints[-1]
             if last_cp[0] != best_iter:
-                save_model(last_cp[1], last_cp[0], algo_key + "_last",
+                last_iter, last_path, _, _ = last_cp
+                with open(last_path, "rb") as f:
+                    last_map = pickle.load(f)
+                save_model(last_map, last_iter, algo_key + "_last",
                            game_name=self.game_name)
+
+            # Clean up intermediate checkpoint files (keep only best + last)
+            for _, cp_path, _, _ in checkpoints:
+                if cp_path not in (best_path,
+                                   checkpoints[-1][1] if len(checkpoints) > 0 else ""):
+                    try:
+                        os.remove(cp_path)
+                    except OSError:
+                        pass
 
         # 3. Save final strategy txt (only at end)
         _save_final_strategy(conv, iterations, algo_key)
