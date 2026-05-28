@@ -1,6 +1,6 @@
 # myCFR — Counterfactual Regret Minimization & RL for Poker
 
-A collection of **tabular**, **neural**, and **RL-based** algorithms for solving imperfect-information poker games. Built on a shared game-abstraction layer supporting Kuhn Poker and Leduc Hold'em.
+A collection of **tabular**, **neural**, and **RL-based** algorithms for solving imperfect-information poker games. Built on a shared game-abstraction layer supporting Kuhn Poker, Leduc Hold'em, Expanded Leduc, and River Poker.
 
 ---
 
@@ -15,6 +15,12 @@ python src/trainer.py -a cfr_plus -g kuhn -i 50000 --batch
 # Leduc Hold'em — CFR+ batch+alternate (recommended)
 python src/trainer.py -a cfr_plus -g leduc -i 2000000 --batch --alternate
 
+# Expanded Leduc (4-rank) — variance-based checkpointing
+python src/trainer.py -a cfr_plus -g expanded_leduc -i 2000000 --batch --alternate
+
+# River Poker (2 hole cards, Hold'em-like) — range-vs-range bridge game
+python src/trainer.py -a cfr_plus -g river_poker -i 1000000 --batch --alternate
+
 # Neural / RL algorithms
 python src/trainer.py -a nfsp_dual -g leduc -i 50000
 python src/trainer.py -a deep_cfr_paper -g kuhn -i 2000
@@ -22,32 +28,66 @@ python src/trainer.py -a deep_cfr_paper -g kuhn -i 2000
 
 ---
 
+## Supported Games
+
+| Game | Deck | Hole Cards | Rounds | Infosets | Tree Nodes | Nash (P0) |
+|------|------|------------|--------|----------|------------|-----------|
+| Kuhn Poker | 3 (J/Q/K) | 1 | 1 | 12 | ~20 | −1/18 ≈ −0.0556 |
+| Leduc Hold'em | 6 (J/Q/K ×2) | 1 | 2 | 528 | 477 | ≈ −0.0855 |
+| Expanded Leduc | 8 (J/Q/K/A ×2) | 1 | 2 | 928 | 631 | ≈ −0.099 (empirical) |
+| River Poker | 8 (J/Q/K/A ×2) | **2** | 2 | ~1500 | 631 | unknown |
+
+---
+
+## CLI Reference
+
+```bash
+python src/trainer.py -a <algo> -g <game> -i <iterations> [--batch] [--alternate]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-a, --algo` | `cfr`, `cfr_plus`, `dcfr`, `pdcfr_plus`, `mccfr`, `deep_cfr`, `deep_cfr_paper`, `dqn`, `ddqn`, `nfsp`, `nfsp_dual` |
+| `-g, --game` | `kuhn`, `leduc`, `expanded_leduc`, `river_poker` |
+| `-i, --iterations` | Iterations (tabular) or episodes (neural) |
+| `--batch` | Enumerate all card-deal combos per iteration |
+| `--alternate` | Alternate P0/P1 updates each iteration |
+
+---
+
 ## Evaluation Pipeline
 
 ```bash
-python eval_pipeline.py                    # scan models/, run all
+python eval_pipeline.py                      # scan models/, run all
 python eval_pipeline.py --model leduc_cfr_plus_2e+06  # single model
+python src/check_exploit.py leduc_cfr_plus_2e+06 --game leduc  # manual check
 ```
 
-Auto-discovers `.pkl` models in `models/`, matches them with training logs, and produces:
-
+Output structure:
 ```
 eval/{game}_{algo}_{iters}/
 ├── visualizations/
-│   └── game_value.png      # dual-line: cumulative avg + estimated current
+│   └── game_value.png
 └── exploitability/
-    └── {model_name}.txt    # full BR report
+    └── {model_name}.txt
 ```
 
-`_best` checkpoint models are also detected and evaluated.
+---
 
-### Manual exploitability check
+## Checkpoints
 
-```bash
-python src/check_exploit.py leduc_cfr_plus_2e+06 --game leduc
+Two modes depending on whether Nash is known:
+
+| Mode | Trigger | When |
+|------|---------|------|
+| Distance-to-Nash | `\|cur_value − nash\|` minimal | Nash known (Kuhn, Leduc) |
+| Variance-based | Rolling-window std < 0.003 | Nash unknown (Expanded Leduc, River Poker) |
+
+Output:
 ```
-
-Works for all tabular CFR models and Deep CFR models (strategy saved in FakeNode format).
+models/river_poker_cfr_plus_1e+06.pkl         ← final
+models/river_poker_cfr_plus_best_3e+05.pkl    ← best checkpoint
+```
 
 ---
 
@@ -69,119 +109,55 @@ Works for all tabular CFR models and Deep CFR models (strategy saved in FakeNode
 
 ---
 
-## CLI Reference
-
-```bash
-python src/trainer.py -a <algo> -g <game> -i <iterations> [--batch] [--alternate]
-```
-
-| Flag | Description |
-|------|-------------|
-| `-a, --algo` | Algorithm (see table above) |
-| `-g, --game` | `kuhn` or `leduc` |
-| `-i, --iterations` | Iterations (tabular) or episodes (neural) |
-| `--batch` | Enumerate all (P0, P1, comm) combos per iteration |
-| `--alternate` | Alternate P0/P1 updates each iteration |
-
----
-
-## Checkpoints
-
-All training loops automatically save the **best checkpoint** — the model whose rolling-window game value is closest to Nash. Output:
-
-```
-models/leduc_cfr_plus_2e+06.pkl           ← final
-models/leduc_cfr_plus_best_5e+04.pkl      ← best checkpoint (iter in filename)
-```
-
-The checkpoint metric uses **rolling window average** (default: last 2% of iterations) rather than cumulative average, so early random strategies don't mask recent convergence.
-
----
-
 ## Project Structure
 
 ```
 myCFR/
-├── eval_pipeline.py          # Auto-evaluation orchestrator
-├── diagnostic.py             # Cross-implementation comparison tool
+├── src/                        # Toy games (BFS-based)
+│   ├── games/                  # Game ABC + kuhn, leduc, expanded_leduc, river_poker
+│   ├── game_selector.py        # get_game(name)
+│   ├── utils.py                # save/load model, log strategies
+│   ├── algo/                   # All algorithms
+│   │   ├── tabular/            # game_tree, node, cfr_tree
+│   │   ├── mccfr/              # External Sampling MC-CFR
+│   │   ├── neural/, deep_cfr/, dqn/, ddqn/, nfsp/, nfsp_dual/
+│   ├── trainer.py              # Unified CLI + checkpoint logic
+│   ├── check_exploit.py        # Exact exploitability (brute-force BR)
+│   └── visualize.py
 │
-├── src/
-│   ├── games/               # Game ABC: kuhn.py, leduc.py
-│   ├── game_selector.py     # get_game(name)
-│   ├── utils.py             # save/load model, log strategies
-│   │
-│   ├── algo/                 # All algorithms
-│   │   ├── tabular/          # Game tree + CFR (cfr, cfr+, dcfr, pdcfr+)
-│   │   ├── neural/           # Deep CFR (original)
-│   │   ├── deep_cfr/         # Deep CFR (paper spec)
-│   │   ├── dqn/              # DQN
-│   │   ├── ddqn/             # Double DQN
-│   │   ├── nfsp/             # NFSP (single-sided)
-│   │   ├── nfsp_dual/        # NFSP (bilateral) + dual-strategy logger
-│   │   └── mccfr/            # External Sampling MC-CFR
-│   │
-│   ├── trainer.py           # Unified CLI + checkpoint logic
-│   ├── check_exploit.py     # Brute-force exploitability checker
-│   ├── visualize.py         # Dual-line game value plots
-│   └── diagnostic.py
+├── holdem/                     # Future: Texas Hold'em (on-the-fly + abstraction)
+│   (planned: game.py, hand_eval.py, abstraction.py, tree.py, trainer.py)
 │
-├── rlcard_like/             # Reference Leduc + CFR (rlcard-compatible)
-├── eval/                    # Evaluation outputs (model subdirs)
-├── logs/                    # Strategy snapshots
-├── models/                  # Pickled models
-└── references/              # PDF papers
+├── eval_pipeline.py            # Auto-evaluation orchestrator
+├── models/                     # Pickled strategies (*.pkl)
+├── logs/                       # Strategy snapshots
+├── eval/                       # Evaluation outputs
+├── notprojectstuff/            # Reference docs (game rules, notes)
+└── references/                 # PDF papers
 ```
 
 ---
 
-## Nash Values
+## Hand Evaluation (River Poker)
 
-| Game | Nash (P0) | Reference |
-|------|-----------|-----------|
-| Kuhn Poker | −1/18 ≈ −0.0556 | Kuhn 1950 |
-| Leduc Hold'em | ≈ −0.0855 | Standard blind-based |
+Best 3-card hand from 2 hole + 1 community:
 
----
-
-## Leduc Environment
-
-- **Blinds**: P0 = SB (1 chip), P1 = BB (2 chips)
-- **Rounds**: 2 rounds, fixed-limit (R1=2, R2=4)
-- **Raise cap**: 1 bet + 2 raises per round (MAX_RAISES=3)
-- **Deck**: 6 cards (J♠J♥ Q♠Q♥ K♠K♥), 528 infosets, 477 game-tree nodes
-- **Payoffs**: normalised by BB (= 2), matching standard Leduc convention
-
-Key fixes applied: blind-based investment tracking via `raised[]`, CALL always matches max bet, MAX_RAISES=3. These were the root cause of prior non-convergence.
+| Hand | Rank | Resolution |
+|------|------|------------|
+| Pair | 1 | Higher pair wins; kicker breaks ties |
+| High card | 0 | Compare highest → second-highest |
 
 ---
 
 ## Training Commands
 
 ```bash
-# ── Kuhn Poker ──
+# ── Toy Games ──
 python src/trainer.py -a cfr_plus -g kuhn -i 50000 --batch
-
-# ── Leduc Hold'em ──
 python src/trainer.py -a cfr_plus -g leduc -i 2000000 --batch --alternate
-python src/trainer.py -a dcfr -g leduc -i 5000000 --batch --alternate
-python src/trainer.py -a mccfr -g leduc -i 1000000
+python src/trainer.py -a cfr_plus -g expanded_leduc -i 2000000 --batch --alternate
+python src/trainer.py -a cfr_plus -g river_poker -i 1000000 --batch --alternate
 
 # ── Evaluation ──
 python eval_pipeline.py
 ```
-
----
-
-## References
-
-### Analysis
-
-- [Kuhn Poker Equilibrium Analysis](comparison/kuhn_poker_equilibrium_analysis.md)
-- [Leduc Hold'em Equilibrium Analysis](comparison/leduc_holdem_equilibrium_analysis.md)
-
-### Papers
-- Zinkevich et al. (2007) — Regret Minimization in Games with Incomplete Information
-- Tammelin (2014) — Solving Large Imperfect Information Games Using CFR+
-- Brown & Sandholm (2019) — Solving Imperfect-Information Games via Discounted Regret Minimization
-- Brown et al. (2019) — Deep Counterfactual Regret Minimization
-- Heinrich & Silver (2016) — Deep Reinforcement Learning from Self-Play (NFSP)
